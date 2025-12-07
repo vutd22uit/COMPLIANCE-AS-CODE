@@ -1,0 +1,52 @@
+---
+# AWS S3 Compliance Remediation Playbook
+# Ansible playbook for AWS S3 bucket compliance
+
+- name: AWS S3 Compliance Remediation
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_region: "us-east-1"
+    kms_key_alias: "alias/s3-compliance-key"
+
+  tasks:
+    - name: Get list of all S3 buckets
+      amazon.aws.s3_bucket_info:
+        region: "{{ aws_region }}"
+      register: s3_buckets
+
+    - name: "CIS 2.1.4 - Enable public access block on all buckets"
+      amazon.aws.s3_bucket:
+        name: "{{ item.name }}"
+        region: "{{ aws_region }}"
+        public_access:
+          block_public_acls: true
+          ignore_public_acls: true
+          block_public_policy: true
+          restrict_public_buckets: true
+      loop: "{{ s3_buckets.buckets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      tags: [cis, s3, public-access]
+
+    - name: "CIS 2.1.2 - Enable encryption on all buckets"
+      amazon.aws.s3_bucket:
+        name: "{{ item.name }}"
+        region: "{{ aws_region }}"
+        encryption: "AES256"
+      loop: "{{ s3_buckets.buckets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      tags: [cis, s3, encryption]
+
+    - name: "CIS 2.1.3 - Enable versioning on all buckets"
+      amazon.aws.s3_bucket:
+        name: "{{ item.name }}"
+        region: "{{ aws_region }}"
+        versioning: true
+      loop: "{{ s3_buckets.buckets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      tags: [cis, s3, versioning]

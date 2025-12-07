@@ -169,10 +169,22 @@ deny[msg] {
 # Helper: Check for full admin privileges
 has_full_admin_privileges(policy_json) {
     policy := json.unmarshal(policy_json)
-    statement := policy.Statement[_]
+    statements := get_statements(policy)
+    statement := statements[_]
     statement.Effect == "Allow"
     action_is_star(statement.Action)
     resource_is_star(statement.Resource)
+}
+
+# Normalize Statement to a list
+get_statements(policy) = statements {
+    is_array(policy.Statement)
+    statements := policy.Statement
+}
+
+get_statements(policy) = statements {
+    not is_array(policy.Statement)
+    statements := [policy.Statement]
 }
 
 action_is_star(action) {

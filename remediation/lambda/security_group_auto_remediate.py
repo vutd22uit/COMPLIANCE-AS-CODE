@@ -98,7 +98,8 @@ def lambda_handler(event, context):
 def extract_security_group_id(event):
     """Extract security group ID from event."""
     if 'configRuleArn' in event:
-        return event.get('resourceId')
+        invoking_event = json.loads(event.get('invokingEvent', '{}'))
+        return invoking_event.get('configurationItem', {}).get('resourceId')
     
     if 'detail' in event:
         params = event['detail'].get('requestParameters', {})

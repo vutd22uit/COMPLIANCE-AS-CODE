@@ -86,7 +86,8 @@ def extract_bucket_name(event):
     
     # AWS Config event
     if 'configRuleArn' in event:
-        return event.get('resourceId')
+        invoking_event = json.loads(event.get('invokingEvent', '{}'))
+        return invoking_event.get('configurationItem', {}).get('resourceId')
     
     # S3 event
     if 'Records' in event:

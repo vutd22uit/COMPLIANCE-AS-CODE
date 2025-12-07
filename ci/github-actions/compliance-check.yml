@@ -1,0 +1,332 @@
+# GitHub Actions Workflow - Compliance Checks
+# This workflow runs on every pull request to validate compliance
+
+name: Compliance Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - '**.tf'
+      - '**.yml'
+      - '**.yaml'
+      - 'policies/**'
+      - 'tests/**'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  TERRAFORM_VERSION: '1.5.0'
+  PYTHON_VERSION: '3.11'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  # Job 1: IaC Static Analysis
+  iac-scan:
+    name: IaC Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        run: |
+          cd examples/terraform
+          terraform init
+
+      - name: Terraform Validate
+        run: |
+          cd examples/terraform
+          terraform validate
+
+      - name: Run Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: examples/terraform/
+          framework: terraform
+          output_format: cli,json,sarif
+          output_file_path: console,checkov-results.json,checkov.sarif
+          soft_fail: false
+          compact: true
+          quiet: true
+          download_external_modules: false
+          skip_check: CKV_AWS_144  # Example: skip specific checks if needed
+
+      - name: Upload Checkov Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: checkov-results
+          path: checkov-results.json
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: checkov.sarif
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: examples/terraform/
+          soft_fail: false
+          format: json,sarif
+          sarif_file: tfsec.sarif
+
+      - name: Upload tfsec SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: tfsec.sarif
+
+  # Job 2: OPA Policy Validation
+  opa-policy-check:
+    name: OPA Policy Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Generate Terraform Plan
+        run: |
+          cd examples/terraform
+          terraform init
+          terraform plan -out=tfplan.binary
+          terraform show -json tfplan.binary > tfplan.json
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Setup Conftest
+        run: |
+          wget https://github.com/open-policy-agent/conftest/releases/download/v0.45.0/conftest_0.45.0_Linux_x86_64.tar.gz
+          tar xzf conftest_0.45.0_Linux_x86_64.tar.gz
+          sudo mv conftest /usr/local/bin/
+
+      - name: Run Conftest
+        run: |
+          cd examples/terraform
+          conftest test tfplan.json \
+            -p ../../policies/rego/ \
+            --output table \
+            --all-namespaces
+
+      - name: Upload Terraform Plan
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-plan
+          path: examples/terraform/tfplan.json
+
+  # Job 3: InSpec Runtime Checks (if AWS credentials available)
+  inspec-scan:
+    name: InSpec Compliance Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install InSpec
+        run: |
+          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run InSpec AWS CIS Profile
+        run: |
+          inspec exec tests/inspec/aws-cis \
+            -t aws:// \
+            --reporter cli json:inspec-results.json \
+            --chef-license accept-silent
+        continue-on-error: true
+
+      - name: Upload InSpec Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: inspec-results
+          path: inspec-results.json
+
+  # Job 4: Policy Lint & Validation
+  policy-validation:
+    name: Policy Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install yamllint
+
+      - name: Validate YAML Syntax
+        run: |
+          yamllint -f parsable policies/custodian/
+          yamllint -f parsable config/
+
+      - name: Validate Rego Policies
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: OPA Test
+        run: |
+          opa test policies/rego/ -v
+
+  # Job 5: Generate Compliance Report
+  compliance-report:
+    name: Generate Compliance Report
+    runs-on: ubuntu-latest
+    needs: [iac-scan, opa-policy-check]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Checkov Results
+        uses: actions/download-artifact@v3
+        with:
+          name: checkov-results
+        continue-on-error: true
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: terraform-plan
+        continue-on-error: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Generate Summary Report
+        run: |
+          python ci/scripts/generate-compliance-report.py \
+            --checkov-results checkov-results.json \
+            --output compliance-report.md
+
+      - name: Post Report as PR Comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('compliance-report.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
+      - name: Upload Compliance Report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: compliance-report
+          path: compliance-report.md
+
+  # Job 6: Store Evidence
+  store-evidence:
+    name: Store Compliance Evidence
+    runs-on: ubuntu-latest
+    needs: [iac-scan, opa-policy-check, inspec-scan]
+    if: always() && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload Evidence to S3
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          aws s3 cp . s3://${{ secrets.EVIDENCE_BUCKET }}/scans/${TIMESTAMP}/ \
+            --recursive \
+            --exclude "*" \
+            --include "*-results.json" \
+            --include "*.sarif"
+
+  # Job 7: Quality Gate
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [iac-scan, opa-policy-check, policy-validation]
+    if: always()
+
+    steps:
+      - name: Check Quality Gate
+        run: |
+          echo "Quality gate check"
+          if [ "${{ needs.iac-scan.result }}" != "success" ]; then
+            echo "❌ IaC scan failed"
+            exit 1
+          fi
+          if [ "${{ needs.opa-policy-check.result }}" != "success" ]; then
+            echo "❌ OPA policy check failed"
+            exit 1
+          fi
+          if [ "${{ needs.policy-validation.result }}" != "success" ]; then
+            echo "❌ Policy validation failed"
+            exit 1
+          fi
+          echo "✅ All quality gates passed"

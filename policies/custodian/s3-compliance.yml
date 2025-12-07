@@ -1,0 +1,270 @@
+# Cloud Custodian Policies for S3 Compliance
+# Maps to CIS AWS Benchmark 2.1.x controls
+
+policies:
+  # CIS-AWS-2.1.4: Block public S3 buckets
+  - name: s3-enforce-block-public-access
+    description: |
+      Ensure S3 buckets have public access block configuration enabled.
+      Remediates CIS AWS Foundations Benchmark 2.1.4
+    resource: aws.s3
+    mode:
+      type: periodic
+      schedule: "rate(1 hour)"
+      role: arn:aws:iam::123456789012:role/CustodianRole
+    filters:
+      # Find buckets without proper public access block
+      - or:
+        - type: value
+          key: PublicAccessBlockConfiguration.BlockPublicAcls
+          value: false
+        - type: value
+          key: PublicAccessBlockConfiguration.BlockPublicPolicy
+          value: false
+        - type: value
+          key: PublicAccessBlockConfiguration.IgnorePublicAcls
+          value: false
+        - type: value
+          key: PublicAccessBlockConfiguration.RestrictPublicBuckets
+          value: false
+    actions:
+      # Auto-remediate: Enable all public access blocks
+      - type: set-public-access-block
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Notify security team
+      - type: notify
+        template: default.html
+        priority_header: "1"
+        subject: "[COMPLIANCE] S3 Bucket Public Access Blocked - CIS-AWS-2.1.4"
+        violation_desc: "S3 bucket found without proper public access block configuration"
+        action_desc: "Automatically enabled all public access block settings"
+        to:
+          - compliance@yourcompany.com
+        transport:
+          type: sqs
+          queue: https://sqs.us-east-1.amazonaws.com/123456789012/compliance-alerts
+      # Tag for tracking
+      - type: tag
+        tags:
+          ComplianceRemediation: "CIS-AWS-2.1.4"
+          RemediatedDate: "{now:%Y-%m-%d}"
+          RemediatedBy: "CloudCustodian"
+
+  # CIS-AWS-2.1.2: Enforce S3 encryption
+  - name: s3-enforce-encryption
+    description: |
+      Ensure S3 buckets have server-side encryption enabled.
+      Remediates CIS AWS Foundations Benchmark 2.1.2
+    resource: aws.s3
+    mode:
+      type: cloudtrail
+      events:
+        - source: s3.amazonaws.com
+          event: CreateBucket
+          ids: "requestParameters.bucketName"
+      role: arn:aws:iam::123456789012:role/CustodianRole
+    filters:
+      # Find buckets without encryption
+      - type: bucket-encryption
+        state: false
+    actions:
+      # Auto-remediate: Enable AES256 encryption
+      - type: set-bucket-encryption
+        algorithm: AES256
+      # Alert for manual KMS setup if needed
+      - type: notify
+        template: default.html
+        subject: "[COMPLIANCE] S3 Bucket Encryption Enabled - CIS-AWS-2.1.2"
+        violation_desc: "S3 bucket created without encryption"
+        action_desc: "Automatically enabled AES256 encryption. Consider KMS for sensitive data."
+        to:
+          - compliance@yourcompany.com
+        transport:
+          type: sqs
+          queue: https://sqs.us-east-1.amazonaws.com/123456789012/compliance-alerts
+      # Tag bucket
+      - type: tag
+        tags:
+          ComplianceRemediation: "CIS-AWS-2.1.2"
+          EncryptionEnabled: "AES256"
+          RemediatedDate: "{now:%Y-%m-%d}"
+
+  # CIS-AWS-2.1.3: Enable S3 access logging
+  - name: s3-enable-access-logging
+    description: |
+      Ensure S3 buckets have access logging enabled.
+      Remediates CIS AWS Foundations Benchmark 2.1.3
+    resource: aws.s3
+    mode:
+      type: periodic
+      schedule: "rate(6 hours)"
+      role: arn:aws:iam::123456789012:role/CustodianRole
+    filters:
+      # Exclude the central logging bucket itself
+      - not:
+        - type: value
+          key: Name
+          value: "central-s3-access-logs"
+      # Find buckets without logging
+      - type: value
+        key: Logging
+        value: absent
+    actions:
+      # Auto-remediate: Enable logging to central bucket
+      - type: set-bucket-logging
+        target_bucket: central-s3-access-logs
+        target_prefix: "{source_bucket_name}/"
+      # Notify
+      - type: notify
+        template: default.html
+        subject: "[COMPLIANCE] S3 Access Logging Enabled - CIS-AWS-2.1.3"
+        to:
+          - compliance@yourcompany.com
+        transport:
+          type: sqs
+          queue: https://sqs.us-east-1.amazonaws.com/123456789012/compliance-alerts
+
+  # PCI-DSS 3.4.1: Enforce KMS encryption for PCI data
+  - name: s3-pci-data-kms-encryption
+    description: |
+      Ensure S3 buckets tagged with PCI data use KMS encryption.
+      Remediates PCI-DSS Requirement 3.4.1
+    resource: aws.s3
+    mode:
+      type: periodic
+      schedule: "rate(1 hour)"
+      role: arn:aws:iam::123456789012:role/CustodianRole
+    filters:
+      # Find buckets tagged with PCI data
+      - type: value
+        key: "tag:DataClassification"
+        value: "PCI"
+      # Without KMS encryption
+      - or:
+        - type: bucket-encryption
+          state: false
+        - not:
+          - type: bucket-encryption
+            crypto: aws:kms
+    actions:
+      # DO NOT auto-remediate (requires specific KMS key)
+      # Create ticket for manual remediation
+      - type: notify
+        template: default.html
+        priority_header: "1"
+        subject: "[CRITICAL] PCI Data Bucket Missing KMS Encryption - PCI-DSS-3.4.1"
+        violation_desc: |
+          S3 bucket tagged with DataClassification=PCI does not have KMS encryption.
+          This is a CRITICAL violation of PCI-DSS Requirement 3.4.1.
+        action_desc: "Manual remediation required: Enable KMS encryption with approved key."
+        to:
+          - compliance@yourcompany.com
+          - security@yourcompany.com
+          - dpo@yourcompany.com
+        transport:
+          type: sqs
+          queue: https://sqs.us-east-1.amazonaws.com/123456789012/compliance-critical
+      # Tag as non-compliant
+      - type: tag
+        tags:
+          ComplianceStatus: "NON_COMPLIANT"
+          ComplianceViolation: "PCI-DSS-3.4.1"
+          ViolationDate: "{now:%Y-%m-%d}"
+
+  # ISO-27017-CLD.10.1.1: Data at rest encryption (warning for non-KMS)
+  - name: s3-iso-27017-encryption-warning
+    description: |
+      Alert on S3 buckets not using KMS encryption for enhanced security.
+      ISO 27017 CLD.10.1.1 recommendation
+    resource: aws.s3
+    mode:
+      type: periodic
+      schedule: "rate(1 day)"
+      role: arn:aws:iam::123456789012:role/CustodianRole
+    filters:
+      # Buckets with standard encryption (not KMS)
+      - type: bucket-encryption
+        state: true
+      - not:
+        - type: bucket-encryption
+          crypto: aws:kms
+      # Exclude low-sensitivity buckets
+      - not:
+        - type: value
+          key: "tag:DataClassification"
+          value: "Public"
+    actions:
+      # Advisory notification (not blocking)
+      - type: notify
+        template: default.html
+        subject: "[ADVISORY] S3 Bucket Should Use KMS - ISO-27017-CLD.10.1.1"
+        violation_desc: "S3 bucket uses AES256 encryption instead of KMS"
+        action_desc: "Consider upgrading to KMS encryption for enhanced key management and audit trail"
+        to:
+          - compliance@yourcompany.com
+        transport:
+          type: sqs
+          queue: https://sqs.us-east-1.amazonaws.com/123456789012/compliance-advisory
+
+  # Detect and remove truly public buckets (EMERGENCY)
+  - name: s3-emergency-remove-public-access
+    description: |
+      EMERGENCY: Remove public access from S3 buckets immediately.
+      Triggered by bucket policy or ACL changes that grant public access.
+    resource: aws.s3
+    mode:
+      type: cloudtrail
+      events:
+        - source: s3.amazonaws.com
+          event: PutBucketAcl
+          ids: "requestParameters.bucketName"
+        - source: s3.amazonaws.com
+          event: PutBucketPolicy
+          ids: "requestParameters.bucketName"
+      role: arn:aws:iam::123456789012:role/CustodianRole
+    filters:
+      # Actually public buckets
+      - type: bucket-encryption
+        state: true  # Has some config
+      - or:
+        - type: is-public
+        - type: has-statement
+          statements:
+            - Effect: Allow
+              Principal: "*"
+    actions:
+      # IMMEDIATE remediation
+      - type: delete-bucket-policy
+      - type: set-public-access-block
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Critical alert
+      - type: notify
+        template: default.html
+        priority_header: "1"
+        subject: "[CRITICAL] Public S3 Bucket Access BLOCKED"
+        violation_desc: "S3 bucket was made public - access immediately blocked"
+        action_desc: "Removed public bucket policy and enabled public access block"
+        to:
+          - compliance@yourcompany.com
+          - security@yourcompany.com
+          - soc@yourcompany.com
+        transport:
+          type: sns
+          topic: arn:aws:sns:us-east-1:123456789012:critical-security-alerts
+      # Create incident ticket
+      - type: webhook
+        url: https://your-jira.com/api/incident
+        body: |
+          {
+            "summary": "S3 Bucket Made Public - Auto-Remediated",
+            "bucket": "{Name}",
+            "account": "{c7n:Account}",
+            "region": "{c7n:Region}",
+            "severity": "CRITICAL"
+          }

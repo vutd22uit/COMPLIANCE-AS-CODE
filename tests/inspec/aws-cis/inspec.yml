@@ -1,0 +1,36 @@
+name: aws-cis
+title: CIS AWS Foundations Benchmark
+maintainer: Compliance Team
+copyright: Compliance Team
+copyright_email: compliance@yourcompany.com
+license: Apache-2.0
+summary: InSpec profile for CIS AWS Foundations Benchmark v1.5.0
+version: 1.0.0
+supports:
+  - platform: aws
+
+inputs:
+  - name: aws_region
+    type: string
+    value: us-east-1
+    description: AWS region to scan
+
+  - name: aws_profile
+    type: string
+    value: default
+    description: AWS CLI profile to use
+
+  - name: cloudtrail_trail_name
+    type: string
+    value: ""
+    description: Name of the CloudTrail trail to check (leave empty to check all)
+
+  - name: exempt_account_ids
+    type: array
+    value: []
+    description: List of AWS account IDs exempt from certain checks
+
+  - name: approved_kms_keys
+    type: array
+    value: []
+    description: List of approved KMS key ARNs for encryption

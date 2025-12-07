@@ -1,0 +1,71 @@
+# Prometheus Alert Rules for Compliance Violations
+
+groups:
+  - name: compliance_alerts
+    interval: 60s
+    rules:
+      # Critical: Compliance score drops below 90%
+      - alert: ComplianceScoreLow
+        expr: compliance_score{standard="CIS-AWS"} < 90
+        for: 5m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Compliance score below 90%"
+          description: "CIS AWS compliance score is {{ $value }}% (threshold: 90%)"
+      
+      # High: Critical violations detected
+      - alert: CriticalViolationsDetected
+        expr: compliance_violations_severity{severity="CRITICAL"} > 0
+        for: 2m
+        labels:
+          severity: high
+          team: security
+        annotations:
+          summary: "Critical compliance violations detected"
+          description: "{{ $value }} critical violations found in {{ $labels.standard }}"
+      
+      # High: Compliance score drops below 95%
+      - alert: ComplianceScoreWarning
+        expr: compliance_score{standard="CIS-AWS"} < 95
+        for: 10m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Compliance score below 95%"
+          description: "CIS AWS compliance score is {{ $value }}% (warning threshold: 95%)"
+      
+      # Medium: High severity violations
+      - alert: HighSeverityViolations
+        expr: compliance_violations_severity{severity="HIGH"} > 5
+        for: 15m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Multiple high-severity violations"
+          description: "{{ $value }} high-severity violations in {{ $labels.standard }}"
+      
+      # Info: No recent scans
+      - alert: ComplianceScanStale
+        expr: (time() - compliance_last_scan_timestamp) > 7200
+        for: 5m
+        labels:
+          severity: info
+          team: devops
+        annotations:
+          summary: "Compliance scan is stale"
+          description: "Last scan was {{ $value | humanizeDuration }} ago for {{ $labels.scanner }}"
+      
+      # Critical: Failed controls increase
+      - alert: FailedControlsIncreasing
+        expr: rate(compliance_control_status{status="0"}[30m]) > 0.1
+        for: 10m
+        labels:
+          severity: high
+          team: security
+        annotations:
+          summary: "Failed compliance controls increasing"
+          description: "Rate of failed controls is increasing for {{ $labels.standard }}"

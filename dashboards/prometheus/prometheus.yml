@@ -1,0 +1,41 @@
+# Prometheus Configuration for Compliance Monitoring
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: 'compliance-monitoring'
+    environment: 'production'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Load rules
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Compliance Exporter
+  - job_name: 'compliance'
+    static_configs:
+      - targets: ['compliance-exporter:9090']
+        labels:
+          service: 'compliance-scanner'
+          team: 'security'
+    
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9091']
+  
+  # Node Exporter (for system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          instance: 'compliance-server'

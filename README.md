@@ -3,7 +3,12 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-active-success.svg)
 
-A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforcement, and remediation of security compliance controls across AWS and OpenStack environments.
+A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforcement, and remediation of **CIS Benchmark** compliance controls across AWS cloud infrastructure and Linux systems.
+
+> **🎯 Focus**: This framework is specifically designed for **CIS (Center for Internet Security) Benchmarks** only.
+> - CIS AWS Foundations Benchmark v1.5.0 (60 controls)
+> - CIS Linux Benchmark (95+ controls)
+> - **NOT included**: ISO 27017, PCI-DSS, HIPAA, SOC 2
 
 ## Table of Contents
 
@@ -21,12 +26,26 @@ A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforc
 
 ## Overview
 
-This framework automates compliance checks for:
-- **CIS Benchmarks** (AWS Foundations, Linux)
-- **ISO 27017** (Cloud-specific controls)
-- **PCI-DSS** (Payment card industry data security)
+This framework automates **CIS Benchmark compliance checks** for:
 
-It provides three layers of compliance enforcement:
+### CIS AWS Foundations Benchmark v1.5.0
+- **Section 1**: Identity and Access Management (21 controls)
+- **Section 2**: Storage (S3, EBS, RDS) (11 controls)
+- **Section 3**: Logging (CloudTrail, Config, VPC Flow Logs) (11 controls)
+- **Section 4**: Monitoring (CloudWatch metrics and alarms) (16 controls)
+- **Section 5**: Networking (VPC, Security Groups, NACLs) (6 controls)
+
+### CIS Linux Benchmark (Ubuntu/RHEL/Amazon Linux)
+- **Section 1**: Initial Setup (filesystem, bootloader, integrity)
+- **Section 2**: Services (disable unnecessary services)
+- **Section 3**: Network Configuration (hardening)
+- **Section 4**: Logging and Auditing (auditd, rsyslog)
+- **Section 5**: Access, Authentication and Authorization (SSH, PAM)
+- **Section 6**: System Maintenance (file permissions, accounts)
+
+### Three-Layer Compliance Enforcement
+
+The framework provides three layers of compliance enforcement:
 1. **Pre-deploy Gates**: Block non-compliant Infrastructure-as-Code (IaC) before deployment
 2. **Runtime Scanning**: Continuous monitoring of deployed resources
 3. **Automatic Remediation**: Auto-fix or alert on compliance violations
@@ -77,7 +96,10 @@ It provides three layers of compliance enforcement:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-For detailed architecture, see [docs/architecture.md](docs/architecture.md)
+**📖 Documentation:**
+- [Architecture Overview](docs/architecture.md) - System design and components
+- [**System Diagrams**](docs/diagrams.md) - **Visual architecture & data flow diagrams**
+- [CIS Benchmark Focus](docs/CIS-BENCHMARK-FOCUS.md) - Why CIS only?
 
 ## Project Structure
 
@@ -123,32 +145,53 @@ COMPLIANCE-AS-CODE/
     └── cloudformation/          # CloudFormation examples
 ```
 
-## Supported Compliance Standards
+## CIS Benchmark Coverage
 
-### CIS Benchmarks
-- **CIS AWS Foundations Benchmark v1.5.0**
-  - IAM controls
-  - Logging & Monitoring
-  - Network configuration
-  - Storage encryption
+> **📖 See**: [docs/CIS-BENCHMARK-FOCUS.md](docs/CIS-BENCHMARK-FOCUS.md) for complete rationale
 
-- **CIS Linux Benchmark**
-  - System hardening
-  - Access controls
-  - Logging & auditing
+### CIS AWS Foundations Benchmark v1.5.0 (60 controls)
 
-### ISO 27017:2015
-- Cloud-specific security controls
-- Data protection in cloud environments
-- Shared responsibility model compliance
+| Section | Controls | Implementation Status |
+|---------|----------|----------------------|
+| **1. IAM** | 21 controls | 🟢 53% (11/21) |
+| **2. Storage** | 11 controls | 🟢 73% (8/11) |
+| **3. Logging** | 11 controls | 🟢 64% (7/11) |
+| **4. Monitoring** | 16 controls | 🟡 19% (3/16) |
+| **5. Networking** | 6 controls | 🟢 67% (4/6) |
+| **TOTAL** | **60 controls** | **🟡 53% (32/60)** |
 
-### PCI-DSS v4.0
-- Cardholder data protection
-- Access control requirements
-- Logging and monitoring
-- Encryption requirements
+**CRITICAL controls**: 🟢 67% (20/30) ← **Priority Focus**
 
-See [docs/control-mapping.md](docs/control-mapping.md) for complete control coverage.
+### CIS Linux Benchmark (95+ controls)
+
+| Section | Controls | Implementation Status |
+|---------|----------|----------------------|
+| **1. Initial Setup** | 20 controls | 🟡 15% (3/20) |
+| **2. Services** | 15 controls | 🟡 13% (2/15) |
+| **3. Network Config** | 18 controls | 🟡 11% (2/18) |
+| **4. Logging & Audit** | 22 controls | 🟡 9% (2/22) |
+| **5. Access & Auth** | 15 controls | 🟡 20% (3/15) |
+| **6. System Maint** | 10 controls | 🟡 10% (1/10) |
+| **TOTAL** | **95+ controls** | **🔴 13% (12/95)** |
+
+**CRITICAL controls**: 🟢 75% (6/8)
+
+### Overall Compliance Score
+
+```
+Total Controls: 155 (60 AWS + 95 Linux)
+Implemented:    44 (32 AWS + 12 Linux)
+Coverage:       28%
+
+By Severity:
+├── CRITICAL: 67% (26/39) ✅ HIGH PRIORITY
+├── HIGH:     31% (15/48)
+├── MEDIUM:   12% (8/68)
+└── LOW:      0% (0/25)
+```
+
+**📊 Detailed Control Mapping**: [docs/control-mapping.md](docs/control-mapping.md)
+**🏗️ Architecture Diagrams**: [docs/diagrams.md](docs/diagrams.md)
 
 ## Prerequisites
 
@@ -160,8 +203,10 @@ See [docs/control-mapping.md](docs/control-mapping.md) for complete control cove
 - **OPA** >= 0.50
 
 ### Cloud Access
-- AWS account with appropriate IAM permissions
-- OpenStack environment (optional for full testing)
+- **AWS account** with appropriate IAM permissions (required)
+  - ReadOnlyAccess policy (for scanning)
+  - Specific write permissions (for remediation)
+- **Linux instances** for CIS Linux Benchmark testing (EC2 or on-premise)
 
 ### Optional Tools
 - Docker (for containerized scanning)

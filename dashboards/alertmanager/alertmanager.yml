@@ -1,0 +1,97 @@
+# Alertmanager Configuration for OpenStack CIS Compliance
+
+global:
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'compliance-alerts@example.com'
+  smtp_auth_username: 'alerts@example.com'
+  smtp_auth_password: 'password'
+
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default-receiver'
+  
+  routes:
+    # CRITICAL alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # HIGH alerts
+    - match:
+        severity: high
+      receiver: 'high-alerts'
+      group_wait: 1m
+      repeat_interval: 2h
+
+    # Compliance score drops
+    - match:
+        alertname: ComplianceScoreLow
+      receiver: 'compliance-alerts'
+      group_wait: 5m
+
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'security-team@example.com'
+        send_resolved: true
+
+  - name: 'critical-alerts'
+    slack_configs:
+      - channel: '#security-alerts'
+        username: 'OpenStack Compliance Bot'
+        icon_emoji: ':rotating_light:'
+        title: '🚨 CRITICAL Compliance Alert'
+        text: |
+          *Alert:* {{ .GroupLabels.alertname }}
+          *Severity:* {{ .GroupLabels.severity }}
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+        send_resolved: true
+    email_configs:
+      - to: 'security-oncall@example.com'
+        send_resolved: true
+
+  - name: 'high-alerts'
+    slack_configs:
+      - channel: '#security-alerts'
+        username: 'OpenStack Compliance Bot'
+        icon_emoji: ':warning:'
+        title: '⚠️ HIGH Compliance Alert'
+        text: |
+          *Alert:* {{ .GroupLabels.alertname }}
+          *Severity:* {{ .GroupLabels.severity }}
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+        send_resolved: true
+
+  - name: 'compliance-alerts'
+    slack_configs:
+      - channel: '#compliance-monitoring'
+        username: 'OpenStack Compliance Bot'
+        icon_emoji: ':chart_with_downwards_trend:'
+        title: '📉 Compliance Score Alert'
+        text: |
+          *Alert:* {{ .GroupLabels.alertname }}
+          *Current Score:* {{ range .Alerts }}{{ .Labels.score }}%{{ end }}
+          *Threshold:* 80%
+        send_resolved: true
+
+inhibit_rules:
+  # Inhibit lower severity if higher severity is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'high'
+    equal: ['alertname', 'service']
+
+  - source_match:
+      severity: 'high'
+    target_match:
+      severity: 'medium'
+    equal: ['alertname', 'service']

@@ -1,10 +1,13 @@
 version: '3.8'
 
+# OpenStack CIS Compliance Monitoring Stack
+# Prometheus + Grafana + Custom Compliance Exporter
+
 services:
   # Prometheus - Metrics collection
   prometheus:
     image: prom/prometheus:latest
-    container_name: compliance-prometheus
+    container_name: openstack-compliance-prometheus
     ports:
       - "9091:9090"
     volumes:
@@ -14,6 +17,7 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=90d'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
       - '--web.enable-lifecycle'
@@ -24,15 +28,16 @@ services:
   # Grafana - Visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: compliance-grafana
+    container_name: openstack-compliance-grafana
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=openstack-cis-2024
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3000
-      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-clock-panel
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/compliance-dashboard.json
     volumes:
       - ./grafana:/etc/grafana/provisioning/dashboards
       - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
@@ -43,25 +48,45 @@ services:
       - compliance-net
     restart: unless-stopped
 
-  # Compliance Metrics Exporter
+  # OpenStack Compliance Metrics Exporter
   compliance-exporter:
     build:
       context: ./exporters
       dockerfile: Dockerfile
-    container_name: compliance-exporter
+    container_name: openstack-compliance-exporter
     ports:
       - "9090:9090"
     volumes:
-      - ../../scan-results:/app/scan-results:ro
-    command: ["--port", "9090", "--results-dir", "/app/scan-results"]
+      - ../scan-results:/app/scan-results:ro
+      - ../evidence_store:/app/evidence_store:ro
+    command: 
+      - "--port=9090"
+      - "--results-dir=/app/scan-results"
+      - "--evidence-dir=/app/evidence_store"
     networks:
       - compliance-net
     restart: unless-stopped
 
-  # Node Exporter (for system metrics)
+  # Alertmanager - Alert routing
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: openstack-compliance-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - compliance-net
+    restart: unless-stopped
+
+  # Node Exporter (for system metrics of OpenStack nodes)
   node-exporter:
     image: prom/node-exporter:latest
-    container_name: compliance-node-exporter
+    container_name: openstack-node-exporter
     ports:
       - "9100:9100"
     command:
@@ -75,7 +100,12 @@ services:
 networks:
   compliance-net:
     driver: bridge
+    name: openstack-compliance-network
 
 volumes:
   prometheus-data:
+    name: openstack-prometheus-data
   grafana-data:
+    name: openstack-grafana-data
+  alertmanager-data:
+    name: openstack-alertmanager-data

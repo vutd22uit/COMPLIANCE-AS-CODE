@@ -76,7 +76,8 @@ deny_external_network_attachment contains msg if {
     msg := sprintf("Instance '%s' should not be directly attached to external network", [input.properties.name])
 }
 
-deny_external_network_attachment contains msg if {
+# Deny instances attached directly to public networks
+deny_public_network_attachment contains msg if {
     input.resource_type == "OS::Nova::Server"
     some network in input.properties.networks
     contains(lower(network.network), "public")
@@ -117,7 +118,7 @@ warn_floating_ip contains msg if {
 # ============================================
 
 # Collect all violations
-violations := deny_ssh_open_to_world | deny_rdp_open_to_world | deny_wide_port_range | deny_missing_compliance_metadata | deny_external_network_attachment
+violations := deny_ssh_open_to_world | deny_rdp_open_to_world | deny_wide_port_range | deny_missing_compliance_metadata | deny_external_network_attachment | deny_public_network_attachment
 
 # Collect all warnings
 warnings := warn_unencrypted_volume | warn_secrets_in_userdata | warn_floating_ip

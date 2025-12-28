@@ -1,41 +1,53 @@
-# Prometheus Configuration for Compliance Monitoring
+# Prometheus Configuration for OpenStack CIS Compliance Monitoring
 
 global:
   scrape_interval: 30s
   evaluation_interval: 30s
   external_labels:
-    cluster: 'compliance-monitoring'
-    environment: 'production'
+    monitor: 'openstack-compliance'
 
-# Alerting configuration
+# Alertmanager configuration
 alerting:
   alertmanagers:
     - static_configs:
         - targets:
-            - 'alertmanager:9093'
+          - alertmanager:9093
 
-# Load rules
+# Load alert rules
 rule_files:
-  - 'alerts.yml'
+  - /etc/prometheus/alerts.yml
 
 # Scrape configurations
 scrape_configs:
-  # Compliance Exporter
-  - job_name: 'compliance'
-    static_configs:
-      - targets: ['compliance-exporter:9090']
-        labels:
-          service: 'compliance-scanner'
-          team: 'security'
-    
   # Prometheus self-monitoring
   - job_name: 'prometheus'
     static_configs:
-      - targets: ['localhost:9091']
-  
+      - targets: ['localhost:9090']
+
+  # OpenStack Compliance Exporter
+  - job_name: 'openstack-compliance'
+    static_configs:
+      - targets: ['compliance-exporter:9090']
+    scrape_interval: 60s
+    scrape_timeout: 30s
+    metrics_path: /metrics
+
   # Node Exporter (for system metrics)
   - job_name: 'node'
     static_configs:
       - targets: ['node-exporter:9100']
-        labels:
-          instance: 'compliance-server'
+
+  # Additional OpenStack controller nodes (add your hosts)
+  # - job_name: 'openstack-controllers'
+  #   static_configs:
+  #     - targets:
+  #       - 'controller-01:9100'
+  #       - 'controller-02:9100'
+  #       - 'controller-03:9100'
+
+  # Additional OpenStack compute nodes
+  # - job_name: 'openstack-compute'
+  #   static_configs:
+  #     - targets:
+  #       - 'compute-01:9100'
+  #       - 'compute-02:9100'

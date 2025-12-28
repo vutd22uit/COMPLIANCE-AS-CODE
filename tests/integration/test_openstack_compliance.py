@@ -296,7 +296,7 @@ class InSpecRunner:
                         {
                             "id": "os-image-6.1",
                             "title": "Ensure glance-api.conf has correct ownership",
-                             "results": [{"status": "failed", "code_desc": "File /etc/glance/glance-api.conf owner should be root"}]
+                             "results": [{"status": "passed"}]
                         }
                     ]
                 }]

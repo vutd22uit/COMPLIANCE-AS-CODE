@@ -1,260 +1,433 @@
 #!/usr/bin/env python3
 """
-Prometheus Exporter for Compliance Metrics
-Exposes CIS compliance scan results as Prometheus metrics
+OpenStack Compliance Metrics Exporter for Prometheus
+
+This exporter reads InSpec scan results and exposes metrics for Grafana dashboards.
 """
 
 import json
+import os
 import time
 import glob
-import os
-from datetime import datetime
-from prometheus_client import start_http_server, Gauge, Counter, Info
-from prometheus_client.core import GaugeMetricFamily, CounterMetricFamily, REGISTRY
+from datetime import datetime, timezone
+from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from typing import Dict, List, Any
+import argparse
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
-class ComplianceCollector:
-    """Collects compliance metrics from scan results."""
-    
-    def __init__(self, results_dir='./scan-results'):
+class ComplianceMetrics:
+    """Manages compliance metrics from scan results"""
+
+    def __init__(self, results_dir: str, evidence_dir: str = None):
         self.results_dir = results_dir
+        self.evidence_dir = evidence_dir or os.path.join(results_dir, 'evidence_store')
+        self.metrics = {}
+        self.last_update = None
+
+    def update_metrics(self):
+        """Update metrics from latest scan results"""
+        logger.info("Updating compliance metrics...")
+
+        # Initialize metrics
+        self.metrics = {
+            # Overall compliance
+            'openstack_compliance_score_percent': 0,
+            'openstack_controls_total': 0,
+            'openstack_controls_passed': 0,
+            'openstack_controls_failed': 0,
+            'openstack_controls_skipped': 0,
+
+            # By severity
+            'openstack_critical_compliance_percent': 0,
+            'openstack_high_compliance_percent': 0,
+            'openstack_medium_compliance_percent': 0,
+            'openstack_low_compliance_percent': 0,
+
+            # By service
+            'openstack_service_compliance': {},
+            'openstack_service_controls': {},
+
+            # Findings
+            'openstack_findings_by_severity': {
+                'critical': 0,
+                'high': 0,
+                'medium': 0,
+                'low': 0
+            },
+
+            # Evidence & Remediation
+            'openstack_evidence_collected_total': 0,
+            'openstack_remediations_total': 0,
+            'openstack_remediations_auto': 0,
+            'openstack_mttr_hours': 0,
+            'openstack_mttd_minutes': 0,
+
+            # Control status (for table)
+            'openstack_control_status': [],
+
+            # Timestamps
+            'openstack_last_scan_timestamp': 0
+        }
+
+        # Find latest InSpec result
+        inspec_files = glob.glob(os.path.join(self.results_dir, '**/*.json'), recursive=True)
+        if not inspec_files:
+            logger.warning("No InSpec result files found")
+            return
+
+        # Sort by modification time, get latest
+        latest_file = max(inspec_files, key=os.path.getmtime)
+        logger.info(f"Processing: {latest_file}")
+
+        try:
+            with open(latest_file, 'r') as f:
+                data = json.load(f)
+            self._process_inspec_data(data)
+        except Exception as e:
+            logger.error(f"Error processing {latest_file}: {e}")
+
+        # Count evidence files
+        self._count_evidence_files()
+
+        # Update timestamp
+        self.last_update = datetime.now(timezone.utc)
+        self.metrics['openstack_last_scan_timestamp'] = self.last_update.timestamp()
+
+        logger.info(f"Metrics updated. Compliance: {self.metrics['openstack_compliance_score_percent']}%")
+
+    def _process_inspec_data(self, data: Dict[str, Any]):
+        """Process InSpec JSON data into metrics"""
+        profiles = data.get('profiles', [])
+        if not profiles:
+            return
+
+        all_controls = []
+        for profile in profiles:
+            controls = profile.get('controls', [])
+            all_controls.extend(controls)
+
+        # Service counters
+        service_stats = {
+            'keystone': {'total': 0, 'passed': 0, 'failed': 0},
+            'nova': {'total': 0, 'passed': 0, 'failed': 0},
+            'neutron': {'total': 0, 'passed': 0, 'failed': 0},
+            'cinder': {'total': 0, 'passed': 0, 'failed': 0},
+            'glance': {'total': 0, 'passed': 0, 'failed': 0},
+            'horizon': {'total': 0, 'passed': 0, 'failed': 0},
+            'heat': {'total': 0, 'passed': 0, 'failed': 0},
+            'linux': {'total': 0, 'passed': 0, 'failed': 0}
+        }
+
+        # Severity counters
+        severity_stats = {
+            'critical': {'total': 0, 'passed': 0, 'failed': 0},
+            'high': {'total': 0, 'passed': 0, 'failed': 0},
+            'medium': {'total': 0, 'passed': 0, 'failed': 0},
+            'low': {'total': 0, 'passed': 0, 'failed': 0}
+        }
+
+        total_passed = 0
+        total_failed = 0
+        total_skipped = 0
+
+        control_status_list = []
+
+        for control in all_controls:
+            control_id = control.get('id', 'unknown')
+            title = control.get('title', '')
+            results = control.get('results', [])
+
+            # Determine service
+            service = self._get_service_from_control_id(control_id)
+
+            # Determine severity
+            severity = self._get_severity(control)
+
+            # Check status
+            has_failure = any(r.get('status') == 'failed' for r in results)
+            has_pass = any(r.get('status') == 'passed' for r in results)
+
+            if has_failure:
+                status = 'FAIL'
+                total_failed += 1
+                service_stats[service]['failed'] += 1
+                severity_stats[severity]['failed'] += 1
+            elif has_pass:
+                status = 'PASS'
+                total_passed += 1
+                service_stats[service]['passed'] += 1
+                severity_stats[severity]['passed'] += 1
+            else:
+                status = 'SKIP'
+                total_skipped += 1
+
+            service_stats[service]['total'] += 1
+            severity_stats[severity]['total'] += 1
+
+            # Add to control status list
+            control_status_list.append({
+                'control_id': control_id,
+                'control_title': title[:50] + '...' if len(title) > 50 else title,
+                'service': service,
+                'severity': severity.upper(),
+                'status': status
+            })
+
+        # Calculate totals
+        total_controls = total_passed + total_failed + total_skipped
         
-    def collect(self):
-        """Collect compliance metrics."""
-        
-        # Find latest scan results
-        checkov_results = self._find_latest_file('checkov-*.json')
-        inspec_results = self._find_latest_file('inspec-*.json')
-        
-        # Overall compliance metrics
-        compliance_score = GaugeMetricFamily(
-            'compliance_score',
-            'Overall compliance score percentage',
-            labels=['standard', 'environment']
-        )
-        
-        # Control pass/fail metrics
-        control_status = GaugeMetricFamily(
-            'compliance_control_status',
-            'Status of individual controls (1=pass, 0=fail)',
-            labels=['control_id', 'severity', 'standard', 'resource_type']
-        )
-        
-        # Violations by severity
-        violations_by_severity = GaugeMetricFamily(
-            'compliance_violations_severity',
-            'Number of violations by severity level',
-            labels=['severity', 'standard']
-        )
-        
-        # Resource compliance
-        resource_compliance = GaugeMetricFamily(
-            'compliance_resource_status',
-            'Compliance status by resource',
-            labels=['resource_id', 'resource_type', 'status']
-        )
-        
-        # Parse Checkov results
-        if checkov_results:
-            self._process_checkov(
-                checkov_results,
-                compliance_score,
-                control_status,
-                violations_by_severity,
-                resource_compliance
+        self.metrics['openstack_controls_total'] = total_controls
+        self.metrics['openstack_controls_passed'] = total_passed
+        self.metrics['openstack_controls_failed'] = total_failed
+        self.metrics['openstack_controls_skipped'] = total_skipped
+
+        # Calculate compliance percentage
+        if total_controls > 0:
+            self.metrics['openstack_compliance_score_percent'] = round(
+                (total_passed / (total_passed + total_failed)) * 100 if (total_passed + total_failed) > 0 else 0, 2
             )
+
+        # Severity compliance
+        for severity in ['critical', 'high', 'medium', 'low']:
+            stats = severity_stats[severity]
+            if stats['total'] > 0:
+                self.metrics[f'openstack_{severity}_compliance_percent'] = round(
+                    (stats['passed'] / stats['total']) * 100, 2
+                )
+            self.metrics['openstack_findings_by_severity'][severity] = stats['failed']
+
+        # Service compliance
+        for service, stats in service_stats.items():
+            if stats['total'] > 0:
+                self.metrics['openstack_service_compliance'][service] = round(
+                    (stats['passed'] / stats['total']) * 100, 2
+                )
+                self.metrics['openstack_service_controls'][service] = stats['total']
+
+        # Control status list
+        self.metrics['openstack_control_status'] = control_status_list
+
+    def _get_service_from_control_id(self, control_id: str) -> str:
+        """Get OpenStack service from control ID"""
+        control_id_lower = control_id.lower()
         
-        # Parse InSpec results
-        if inspec_results:
-            self._process_inspec(
-                inspec_results,
-                compliance_score,
-                control_status,
-                violations_by_severity
-            )
-        
-        yield compliance_score
-        yield control_status
-        yield violations_by_severity
-        yield resource_compliance
-        
+        if 'identity' in control_id_lower or control_id_lower.startswith('os-identity'):
+            return 'keystone'
+        elif 'compute' in control_id_lower or control_id_lower.startswith('os-compute'):
+            return 'nova'
+        elif 'networking' in control_id_lower or control_id_lower.startswith('os-networking'):
+            return 'neutron'
+        elif 'storage' in control_id_lower or control_id_lower.startswith('os-storage'):
+            return 'cinder'
+        elif 'image' in control_id_lower or control_id_lower.startswith('os-image'):
+            return 'glance'
+        elif 'dashboard' in control_id_lower or control_id_lower.startswith('os-dashboard'):
+            return 'horizon'
+        elif 'orchestration' in control_id_lower or control_id_lower.startswith('os-orchestration'):
+            return 'heat'
+        elif control_id_lower.startswith('cis-'):
+            return 'linux'
+        else:
+            return 'linux'
+
+    def _get_severity(self, control: Dict[str, Any]) -> str:
+        """Get severity from control"""
+        severity = control.get('tags', {}).get('severity', '').lower()
+        if severity in ['critical', 'high', 'medium', 'low']:
+            return severity
+
+        impact = control.get('impact', 0.5)
+        if impact >= 0.9:
+            return 'critical'
+        elif impact >= 0.7:
+            return 'high'
+        elif impact >= 0.4:
+            return 'medium'
+        else:
+            return 'low'
+
+    def _count_evidence_files(self):
+        """Count evidence files"""
+        if not os.path.exists(self.evidence_dir):
+            return
+
+        evidence_count = 0
+        for root, dirs, files in os.walk(self.evidence_dir):
+            evidence_count += len([f for f in files if f.endswith('.json') or f.endswith('.ndjson')])
+
+        self.metrics['openstack_evidence_collected_total'] = evidence_count
+
+    def get_prometheus_format(self) -> str:
+        """Generate Prometheus exposition format"""
+        lines = []
+
+        # Helper function
+        def add_metric(name, value, labels=None, help_text=None, metric_type='gauge'):
+            if help_text:
+                lines.append(f"# HELP {name} {help_text}")
+            lines.append(f"# TYPE {name} {metric_type}")
+            
+            if labels:
+                label_str = ','.join([f'{k}="{v}"' for k, v in labels.items()])
+                lines.append(f"{name}{{{label_str}}} {value}")
+            else:
+                lines.append(f"{name} {value}")
+
+        # Overall metrics
+        add_metric('openstack_compliance_score_percent', 
+                   self.metrics['openstack_compliance_score_percent'],
+                   help_text='Overall OpenStack CIS compliance score percentage')
+
+        add_metric('openstack_controls_total',
+                   self.metrics['openstack_controls_total'],
+                   help_text='Total number of compliance controls')
+
+        add_metric('openstack_controls_passed',
+                   self.metrics['openstack_controls_passed'],
+                   help_text='Number of passed controls')
+
+        add_metric('openstack_controls_failed',
+                   self.metrics['openstack_controls_failed'],
+                   help_text='Number of failed controls')
+
+        # Severity metrics
+        add_metric('openstack_critical_compliance_percent',
+                   self.metrics['openstack_critical_compliance_percent'],
+                   help_text='CRITICAL severity compliance percentage')
+
+        add_metric('openstack_high_compliance_percent',
+                   self.metrics['openstack_high_compliance_percent'],
+                   help_text='HIGH severity compliance percentage')
+
+        add_metric('openstack_medium_compliance_percent',
+                   self.metrics['openstack_medium_compliance_percent'],
+                   help_text='MEDIUM severity compliance percentage')
+
+        add_metric('openstack_low_compliance_percent',
+                   self.metrics['openstack_low_compliance_percent'],
+                   help_text='LOW severity compliance percentage')
+
+        # Findings by severity
+        lines.append("# HELP openstack_findings_by_severity Number of failed findings by severity")
+        lines.append("# TYPE openstack_findings_by_severity gauge")
+        for severity, count in self.metrics['openstack_findings_by_severity'].items():
+            lines.append(f'openstack_findings_by_severity{{severity="{severity}"}} {count}')
+
+        # Service compliance
+        lines.append("# HELP openstack_service_compliance Compliance percentage by OpenStack service")
+        lines.append("# TYPE openstack_service_compliance gauge")
+        for service, percent in self.metrics['openstack_service_compliance'].items():
+            lines.append(f'openstack_service_compliance{{service="{service}"}} {percent}')
+
+        # Service controls count
+        lines.append("# HELP openstack_service_controls Number of controls by OpenStack service")
+        lines.append("# TYPE openstack_service_controls gauge")
+        for service, count in self.metrics['openstack_service_controls'].items():
+            lines.append(f'openstack_service_controls{{service="{service}"}} {count}')
+
+        # Evidence & Remediation
+        add_metric('openstack_evidence_collected_total',
+                   self.metrics['openstack_evidence_collected_total'],
+                   help_text='Total number of evidence files collected')
+
+        add_metric('openstack_remediations_total',
+                   self.metrics['openstack_remediations_total'],
+                   help_text='Total number of remediations applied')
+
+        add_metric('openstack_remediations_auto',
+                   self.metrics['openstack_remediations_auto'],
+                   help_text='Number of auto-remediations')
+
+        add_metric('openstack_mttr_hours',
+                   self.metrics['openstack_mttr_hours'],
+                   help_text='Mean Time To Remediate in hours')
+
+        add_metric('openstack_mttd_minutes',
+                   self.metrics['openstack_mttd_minutes'],
+                   help_text='Mean Time To Detect in minutes')
+
         # Last scan timestamp
-        last_scan = GaugeMetricFamily(
-            'compliance_last_scan_timestamp',
-            'Unix timestamp of last compliance scan',
-            labels=['scanner']
-        )
-        
-        if checkov_results:
-            last_scan.add_metric(['checkov'], os.path.getmtime(checkov_results))
-        if inspec_results:
-            last_scan.add_metric(['inspec'], os.path.getmtime(inspec_results))
-            
-        yield last_scan
-    
-    def _find_latest_file(self, pattern):
-        """Find the most recent file matching pattern."""
-        files = glob.glob(os.path.join(self.results_dir, pattern))
-        if not files:
-            return None
-        return max(files, key=os.path.getmtime)
-    
-    def _process_checkov(self, filepath, compliance_score, control_status, 
-                        violations_by_severity, resource_compliance):
-        """Process Checkov JSON results."""
-        try:
-            with open(filepath) as f:
-                data = json.load(f)
-            
-            summary = data.get('summary', {})
-            passed = summary.get('passed', 0)
-            failed = summary.get('failed', 0)
-            total = passed + failed
-            
-            if total > 0:
-                score = (passed / total) * 100
-                compliance_score.add_metric(['CIS-AWS', 'production'], score)
-            
-            # Count violations by severity
-            severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
-            
-            for result in data.get('results', {}).get('failed_checks', []):
-                severity = result.get('check_class', 'MEDIUM')
-                if 'CRITICAL' in severity or 'CIS_1' in severity:
-                    severity_counts['CRITICAL'] += 1
-                elif 'HIGH' in severity:
-                    severity_counts['HIGH'] += 1
-                elif 'MEDIUM' in severity:
-                    severity_counts['MEDIUM'] += 1
-                else:
-                    severity_counts['LOW'] += 1
-                
-                # Individual control status
-                control_status.add_metric(
-                    [
-                        result.get('check_id', 'unknown'),
-                        severity,
-                        'CIS-AWS',
-                        result.get('resource', 'unknown').split('.')[0]
-                    ],
-                    0  # 0 = failed
-                )
-                
-                # Resource compliance
-                resource_compliance.add_metric(
-                    [
-                        result.get('resource', 'unknown'),
-                        result.get('resource', 'unknown').split('.')[0],
-                        'failed'
-                    ],
-                    1
-                )
-            
-            for result in data.get('results', {}).get('passed_checks', []):
-                control_status.add_metric(
-                    [
-                        result.get('check_id', 'unknown'),
-                        'INFO',
-                        'CIS-AWS',
-                        result.get('resource', 'unknown').split('.')[0]
-                    ],
-                    1  # 1 = passed
-                )
-            
-            for severity, count in severity_counts.items():
-                violations_by_severity.add_metric([severity, 'CIS-AWS'], count)
-                
-        except Exception as e:
-            print(f"Error processing Checkov results: {e}")
-    
-    def _process_inspec(self, filepath, compliance_score, control_status,
-                       violations_by_severity):
-        """Process InSpec JSON results."""
-        try:
-            with open(filepath) as f:
-                data = json.load(f)
-            
-            profiles = data.get('profiles', [])
-            
-            for profile in profiles:
-                controls = profile.get('controls', [])
-                passed = sum(1 for c in controls if c.get('results', [{}])[0].get('status') == 'passed')
-                total = len(controls)
-                
-                if total > 0:
-                    score = (passed / total) * 100
-                    standard = profile.get('name', 'CIS')
-                    compliance_score.add_metric([standard, 'production'], score)
-                
-                # Process individual controls
-                severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
-                
-                for control in controls:
-                    control_id = control.get('id', 'unknown')
-                    impact = control.get('impact', 0.5)
-                    
-                    # Map impact to severity
-                    if impact >= 0.9:
-                        severity = 'CRITICAL'
-                    elif impact >= 0.7:
-                        severity = 'HIGH'
-                    elif impact >= 0.4:
-                        severity = 'MEDIUM'
-                    else:
-                        severity = 'LOW'
-                    
-                    status = control.get('results', [{}])[0].get('status', 'failed')
-                    status_value = 1 if status == 'passed' else 0
-                    
-                    control_status.add_metric(
-                        [control_id, severity, profile.get('name', 'CIS'), 'aws'],
-                        status_value
-                    )
-                    
-                    if status != 'passed':
-                        severity_counts[severity] += 1
-                
-                for severity, count in severity_counts.items():
-                    violations_by_severity.add_metric(
-                        [severity, profile.get('name', 'CIS')],
-                        count
-                    )
-                    
-        except Exception as e:
-            print(f"Error processing InSpec results: {e}")
+        add_metric('openstack_last_scan_timestamp',
+                   self.metrics['openstack_last_scan_timestamp'],
+                   help_text='Timestamp of last compliance scan')
+
+        # Control status (for table)
+        lines.append("# HELP openstack_control_status Status of individual controls")
+        lines.append("# TYPE openstack_control_status gauge")
+        for ctrl in self.metrics['openstack_control_status']:
+            status_val = 1 if ctrl['status'] == 'PASS' else 0
+            lines.append(
+                f'openstack_control_status{{control_id="{ctrl["control_id"]}",'
+                f'control_title="{ctrl["control_title"]}",'
+                f'service="{ctrl["service"]}",'
+                f'severity="{ctrl["severity"]}",'
+                f'status="{ctrl["status"]}"}} {status_val}'
+            )
+
+        return '\n'.join(lines)
+
+
+class MetricsHandler(BaseHTTPRequestHandler):
+    """HTTP Handler for Prometheus metrics endpoint"""
+
+    metrics_instance = None
+
+    def do_GET(self):
+        if self.path == '/metrics':
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; version=0.0.4')
+            self.end_headers()
+
+            # Update metrics before serving
+            self.metrics_instance.update_metrics()
+            output = self.metrics_instance.get_prometheus_format()
+            self.wfile.write(output.encode('utf-8'))
+
+        elif self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"status": "ok"}')
+
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        logger.info(f"{self.address_string()} - {format % args}")
 
 
 def main():
-    """Main function to start the exporter."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Compliance Prometheus Exporter')
-    parser.add_argument('--port', type=int, default=9090,
-                       help='Port to expose metrics (default: 9090)')
-    parser.add_argument('--results-dir', default='./scan-results',
-                       help='Directory containing scan results')
-    parser.add_argument('--interval', type=int, default=60,
-                       help='Update interval in seconds (default: 60)')
-    
+    parser = argparse.ArgumentParser(description='OpenStack Compliance Metrics Exporter')
+    parser.add_argument('--port', type=int, default=9090, help='Port to listen on')
+    parser.add_argument('--results-dir', default='/app/scan-results', help='Directory containing scan results')
+    parser.add_argument('--evidence-dir', default=None, help='Directory containing evidence files')
+
     args = parser.parse_args()
-    
-    # Register collector
-    REGISTRY.register(ComplianceCollector(args.results_dir))
-    
-    # Start HTTP server
-    start_http_server(args.port)
-    
-    print(f"✅ Compliance metrics exporter started on port {args.port}")
-    print(f"📁 Monitoring directory: {args.results_dir}")
-    print(f"🔄 Update interval: {args.interval}s")
-    print(f"📊 Metrics available at http://localhost:{args.port}/metrics")
-    
-    # Keep running
+
+    # Initialize metrics
+    metrics = ComplianceMetrics(args.results_dir, args.evidence_dir)
+    MetricsHandler.metrics_instance = metrics
+
+    # Start server
+    server = HTTPServer(('0.0.0.0', args.port), MetricsHandler)
+    logger.info(f"Starting OpenStack Compliance Exporter on port {args.port}")
+    logger.info(f"Results directory: {args.results_dir}")
+    logger.info(f"Metrics available at: http://localhost:{args.port}/metrics")
+
     try:
-        while True:
-            time.sleep(args.interval)
+        server.serve_forever()
     except KeyboardInterrupt:
-        print("\n👋 Exporter stopped")
+        logger.info("Shutting down...")
+        server.shutdown()
 
 
 if __name__ == '__main__':

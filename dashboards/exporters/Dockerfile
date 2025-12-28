@@ -3,16 +3,20 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install dependencies
-RUN pip install --no-cache-dir prometheus-client
+RUN pip install --no-cache-dir boto3
 
-# Copy exporter script
+# Copy exporter
 COPY compliance_exporter.py /app/
 
-# Create scan results directory
-RUN mkdir -p /app/scan-results
+# Create directories
+RUN mkdir -p /app/scan-results /app/evidence_store
 
-# Expose metrics port
+# Expose port
 EXPOSE 9090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:9090/health || exit 1
 
 # Run exporter
 ENTRYPOINT ["python", "compliance_exporter.py"]

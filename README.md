@@ -2,401 +2,398 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-active-success.svg)
-![OpenStack](https://img.shields.io/badge/OpenStack-ED1944?logo=openstack&logoColor=white)
+![OpenStack](https://img.shields.io/badge/OpenStack-Yoga-ED1944?logo=openstack&logoColor=white)
+![Kolla](https://img.shields.io/badge/Kolla--Ansible-Yoga-blue)
 
-A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforcement, and remediation of **CIS Benchmark** compliance controls across **OpenStack** cloud infrastructure and Linux systems.
+A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforcement, and remediation of **CIS Benchmark** compliance controls across **OpenStack** cloud infrastructure deployed using **Kolla-Ansible**.
 
-> **🎯 Focus**: This framework is specifically designed for **OpenStack CIS Benchmarks** only.
-> - CIS OpenStack Foundations Benchmark (50+ controls)
-> - CIS Linux Benchmark (95+ controls)
-> - **NOT included**: AWS, Azure, GCP, ISO 27017, PCI-DSS, HIPAA, SOC 2
+> **🎯 Target Environment**:
+> - OpenStack **Yoga** release
+> - Deployed via **Kolla-Ansible** on Ubuntu 22.04/24.04
+> - CIS OpenStack Foundations Benchmark + CIS Linux Benchmark
 
-## Table of Contents
+---
+
+## 🖥️ Supported Environment
+
+### OpenStack Services (Kolla-Ansible Yoga)
+
+| Service | Component | CIS Coverage |
+|---------|-----------|--------------|
+| **Keystone** | Identity & Auth | ✅ 6 controls |
+| **Nova** | Compute | ✅ 8 controls |
+| **Neutron** | Networking (OVS) | ✅ 8 controls |
+| **Glance** | Image | ✅ 4 controls |
+| **Cinder** | Block Storage | ✅ 4 controls |
+| **Swift** | Object Storage | ✅ 4 controls |
+| **Horizon** | Dashboard | ✅ 5 controls |
+| **Heat** | Orchestration | ✅ 4 controls |
+| **HAProxy** | Load Balancer | 🔄 Planned |
+| **MariaDB** | Database | 🔄 Planned |
+| **RabbitMQ** | Message Queue | 🔄 Planned |
+
+### Linux CIS Benchmark
+
+| Distribution | Version | Coverage |
+|--------------|---------|----------|
+| Ubuntu | 22.04 / 24.04 | ✅ 45+ controls |
+| RHEL/CentOS | 8/9 | 🔄 Planned |
+
+---
+
+## 📋 Table of Contents
 
 - [Overview](#overview)
-- [Features](#features)
 - [Architecture](#architecture)
 - [Project Structure](#project-structure)
-- [Supported Compliance Standards](#supported-compliance-standards)
+- [CIS Benchmark Coverage](#cis-benchmark-coverage)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
-- [Documentation](#documentation)
+- [Evidence & Reporting](#evidence--reporting)
+- [Dashboard](#dashboard)
 - [Contributing](#contributing)
-- [Roadmap](#roadmap)
+
+---
 
 ## Overview
 
-This framework automates **CIS Benchmark compliance checks** for:
-
-### CIS OpenStack Foundations Benchmark
-- **Section 1**: Identity (Keystone) - Authentication, API security, token management
-- **Section 2**: Compute (Nova) - Hypervisor hardening, VNC security, API encryption
-- **Section 3**: Networking (Neutron) - Security groups, network isolation, SSL/TLS
-- **Section 4**: Storage (Cinder/Swift) - Data protection, encryption, access control
-- **Section 5**: Image Service (Glance) - Image integrity, secure storage
-- **Section 6**: Dashboard (Horizon) - Session security, HTTPS enforcement
-- **Section 7**: Orchestration (Heat) - Template security, stack policies
-
-### CIS Linux Benchmark (Ubuntu/RHEL/CentOS)
-- **Section 1**: Initial Setup (filesystem, bootloader, integrity)
-- **Section 2**: Services (disable unnecessary services)
-- **Section 3**: Network Configuration (hardening)
-- **Section 4**: Logging and Auditing (auditd, rsyslog)
-- **Section 5**: Access, Authentication and Authorization (SSH, PAM)
-- **Section 6**: System Maintenance (file permissions, accounts)
+This framework automates **CIS Benchmark compliance checks** specifically for OpenStack environments deployed using Kolla-Ansible. It provides:
 
 ### Three-Layer Compliance Enforcement
 
-The framework provides three layers of compliance enforcement:
-1. **Pre-deploy Gates**: Block non-compliant configurations before deployment
-2. **Runtime Scanning**: Continuous monitoring of deployed resources
-3. **Automatic Remediation**: Auto-fix or alert on compliance violations
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. PRE-DEPLOYMENT CHECKS (OPA/Rego Policies)                   │
+│     - Validate configuration files before deployment            │
+│     - Block non-compliant globals.yml settings                  │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  2. RUNTIME SCANNING (InSpec + OpenSCAP)                        │
+│     - Scan running containers and host OS                       │
+│     - Check /etc/{keystone,nova,neutron,etc.}/*.conf            │
+│     - Verify file permissions, TLS settings, auth configs       │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  3. AUTO-REMEDIATION (Ansible Playbooks)                        │
+│     - Fix file permissions automatically                        │
+│     - Update configuration settings                             │
+│     - Restart services via Kolla-Ansible                        │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## Features
-
-### Compliance Scanning
-- ✅ Configuration file analysis (INI, YAML, JSON)
-- ✅ Runtime compliance checks (InSpec, OpenSCAP)
-- ✅ OpenStack API security validation
-- ✅ Linux hardening verification
-
-### Policy Enforcement
-- ✅ Pre-commit hooks for local validation
-- ✅ CI/CD pipeline blocking gates
-- ✅ OPA/Rego policy-as-code
-- ✅ Ansible remediation playbooks
-
-### Reporting & Evidence
-- ✅ Compliance scorecards and dashboards
-- ✅ Audit evidence collection
-- ✅ Trend analysis and metrics
-- ✅ Exception management
+---
 
 ## Architecture
 
+### Kolla-Ansible Integration
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Developer Workflow                       │
-├─────────────────────────────────────────────────────────────┤
-│  Write Config → Pre-commit Hooks → Git Push → CI/CD Pipeline│
-│     ↓               ↓                  ↓            ↓        │
-│  Linting      Local Tests      GitHub Actions   Deploy Gate  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                   KOLLA-ANSIBLE DEPLOYMENT                       │
+│                   (OpenStack Yoga on Ubuntu)                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Keystone   │  │    Nova      │  │   Neutron    │           │
+│  │  Container   │  │  Container   │  │  Container   │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Glance     │  │   Horizon    │  │    Heat      │           │
+│  │  Container   │  │  Container   │  │  Container   │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+│                                                                  │
+│  Config Paths:                                                   │
+│  └── /etc/kolla/{service}/                                      │
+│  └── /var/lib/docker/volumes/kolla_logs/                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
                               ↓
-┌─────────────────────────────────────────────────────────────┐
-│                   OpenStack Infrastructure                   │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │
-│  │Keystone │  │  Nova   │  │ Neutron │  │ Cinder  │        │
-│  │Identity │  │ Compute │  │ Network │  │ Storage │        │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘        │
-│       └────────────┴────────────┴────────────┘              │
-│                         ↓                                    │
-│              Runtime Scanners (InSpec, SCAP)                │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│              Enforcement & Remediation Layer                 │
-├─────────────────────────────────────────────────────────────┤
-│  Auto-remediate → Alert → Create Ticket → Evidence Storage  │
-│  (Ansible)       (Slack)   (Jira)         (S3/Local)        │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│               COMPLIANCE-AS-CODE FRAMEWORK                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│  │   InSpec     │    │  OPA/Rego    │    │   Ansible    │       │
+│  │   Scanners   │    │   Policies   │    │  Remediation │       │
+│  │  (15 files)  │    │  (5 files)   │    │  (3 files)   │       │
+│  └──────────────┘    └──────────────┘    └──────────────┘       │
+│          ↓                  ↓                   ↓                │
+│  ┌──────────────────────────────────────────────────────┐       │
+│  │              EVIDENCE COLLECTION                      │       │
+│  │  Collector → Normalizer → Storage → Dashboard        │       │
+│  └──────────────────────────────────────────────────────┘       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## Project Structure
 
 ```
 COMPLIANCE-AS-CODE/
-├── README.md                    # This file
-├── docs/                        # Documentation
-│   ├── architecture.md          # System architecture
-│   ├── control-mapping.md       # Controls mapping table
-│   └── getting-started.md       # Setup guide
+├── README.md                          # This file
 │
-├── policies/                    # Policy definitions
-│   ├── rego/                    # OPA/Conftest policies
-│   │   └── openstack/           # OpenStack-specific policies
-│   └── custodian/               # Cloud Custodian policies
+├── tests/inspec/
+│   ├── openstack-cis/                 # OpenStack CIS controls (11 files)
+│   │   ├── os-1-identity*.rb          # Keystone checks
+│   │   ├── os-2-compute*.rb           # Nova checks
+│   │   ├── os-3-networking*.rb        # Neutron checks
+│   │   ├── os-4-storage*.rb           # Cinder/Swift checks
+│   │   ├── os-6-image.rb              # Glance checks
+│   │   ├── os-7-dashboard.rb          # Horizon checks
+│   │   └── os-8-orchestration.rb      # Heat checks
+│   └── linux-cis/                     # Linux CIS controls (4 files)
 │
-├── tests/                       # Compliance test suites
-│   ├── inspec/                  # InSpec profiles
-│   │   ├── openstack-cis/       # OpenStack CIS Benchmark tests
-│   │   │   ├── os-1-identity.rb # Keystone controls
-│   │   │   ├── os-2-compute.rb  # Nova controls
-│   │   │   ├── os-3-networking.rb # Neutron controls
-│   │   │   └── os-4-storage.rb  # Cinder/Swift controls
-│   │   └── linux-cis/           # Linux CIS tests
-│   └── openscap/                # OpenSCAP content
+├── policies/rego/openstack/           # OPA policies (4 files)
+│   ├── keystone.rego                  # Identity policies
+│   ├── nova.rego                      # Compute policies
+│   ├── neutron.rego                   # Network policies
+│   └── storage.rego                   # Storage policies
 │
-├── remediation/                 # Auto-remediation scripts
-│   ├── ansible/                 # Ansible playbooks
-│   │   └── cis-linux-remediation.yml
-│   └── scripts/                 # Shell/Python scripts
+├── remediation/ansible/               # Ansible playbooks (3 files)
+│   ├── cis-openstack-remediation.yml  # OpenStack hardening
+│   ├── cis-linux-remediation.yml      # Linux hardening
+│   └── openstack-hardening.yml        # Additional hardening
 │
-├── ci/                          # CI/CD integration
-│   ├── github-actions/          # GitHub Actions workflows
-│   └── scripts/                 # Helper scripts
+├── evidence/                          # Evidence collection
+│   ├── collectors/evidence_collector.py
+│   └── reporters/compliance_reporter.py
 │
-├── dashboards/                  # Visualization configs
-│   ├── grafana/                 # Grafana dashboards
-│   ├── prometheus/              # Prometheus config
-│   └── docker-compose.yml       # Monitoring stack
+├── dashboards/                        # Monitoring
+│   ├── demo-dashboard.html            # Standalone HTML dashboard
+│   ├── grafana/                       # Grafana dashboards
+│   ├── prometheus/                    # Prometheus config
+│   └── docker-compose.yml             # Monitoring stack
 │
-├── config/                      # Configuration files
-│   ├── controls/                # Control definitions
-│   └── mappings/                # Control-to-check mappings
+├── ci/github-actions/                 # CI/CD
+│   └── compliance-check.yml
 │
-├── evidence/                    # Compliance evidence storage
-│
-└── examples/                    # Example configurations
-    └── openstack/               # OpenStack config examples
+└── docs/                              # Documentation
+    ├── architecture.md
+    └── getting-started.md
 ```
 
-## CIS OpenStack Benchmark Coverage
+---
 
-### CIS OpenStack Foundations Benchmark (57 controls)
+## CIS Benchmark Coverage
 
-| Section | Controls | Implementation Status |
-|---------|----------|----------------------|
-| **1. Identity (Keystone)** | 10 controls | 🟢 100% (10/10) |
-| **2. Compute (Nova)** | 12 controls | 🟢 100% (12/12) |
-| **3. Networking (Neutron)** | 8 controls | 🟢 100% (8/8) |
-| **4. Storage (Cinder/Swift)** | 10 controls | 🟢 100% (10/10) |
-| **5. Image (Glance)** | 5 controls | 🟢 100% (5/5) |
-| **6. Dashboard (Horizon)** | 7 controls | 🟢 100% (7/7) |
-| **7. Orchestration (Heat)** | 5 controls | 🟢 100% (5/5) |
-| **TOTAL** | **57 controls** | **🟢 100% (57/57)** |
+### OpenStack CIS Benchmark (43/50 controls = 86%)
 
-### CIS Linux Benchmark (95+ controls)
+| Section | Controls | Implemented | Config Path |
+|---------|----------|-------------|-------------|
+| **1. Identity (Keystone)** | 10 | 6 | `/etc/kolla/keystone/` |
+| **2. Compute (Nova)** | 12 | 8 | `/etc/kolla/nova/` |
+| **3. Networking (Neutron)** | 8 | 8 | `/etc/kolla/neutron/` |
+| **4. Storage (Cinder/Swift)** | 6 | 8 | `/etc/kolla/cinder/` |
+| **5. Image (Glance)** | 6 | 4 | `/etc/kolla/glance/` |
+| **6. Dashboard (Horizon)** | 5 | 5 | `/etc/kolla/horizon/` |
+| **7. Orchestration (Heat)** | 3 | 4 | `/etc/kolla/heat/` |
 
-| Section | Controls | Implementation Status |
-|---------|----------|----------------------|
-| **1. Initial Setup** | 20 controls | 🟡 15% (3/20) |
-| **2. Services** | 15 controls | 🟡 13% (2/15) |
-| **3. Network Config** | 18 controls | 🟡 11% (2/18) |
-| **4. Logging & Audit** | 22 controls | 🟡 9% (2/22) |
-| **5. Access & Auth** | 15 controls | 🟡 40% (6/15) |
-| **6. System Maint** | 10 controls | 🟡 30% (3/10) |
-| **TOTAL** | **95+ controls** | **🟡 18% (18/95)** |
+### Linux CIS Benchmark (45+/95 controls = 47%)
 
-### Overall Compliance Score
+| Section | Controls | Implemented |
+|---------|----------|-------------|
+| 1. Initial Setup | 20 | 15+ |
+| 4. Logging & Audit | 22 | 10+ |
+| 5. Access & Auth | 15 | 12+ |
+| 6. System Maintenance | 10 | 8+ |
 
-```
-Total Controls: 145 (50 OpenStack + 95 Linux)
-Implemented:    33 (15 OpenStack + 18 Linux)
-Coverage:       23%
-
-By Severity:
-├── CRITICAL: 45% (9/20) ⚠️ PRIORITY
-├── HIGH:     28% (14/50)
-├── MEDIUM:   15% (8/55)
-└── LOW:      10% (2/20)
-```
+---
 
 ## Prerequisites
 
-### Required Tools
-- **Python** >= 3.8
-- **InSpec** >= 5.0 (for compliance testing)
-- **Ansible** >= 2.12 (for remediation)
-- **OpenSCAP** >= 1.3 (for Linux hardening)
+### Required
+
+- **OpenStack Yoga** deployed via Kolla-Ansible
+- **Python** >= 3.10
+- **InSpec** >= 5.0
+- **Ansible** >= 2.12
 
 ### OpenStack Access
-- **Admin credentials** for OpenStack API access
-- **SSH access** to OpenStack controller/compute nodes
-- **Configuration file access** (/etc/keystone, /etc/nova, etc.)
 
-### Optional Tools
-- Docker (for containerized scanning)
-- Prometheus/Grafana (for dashboards)
-- Git with pre-commit hooks
+```bash
+# Source your Kolla credentials
+source /etc/kolla/admin-openrc.sh
+
+# Verify access
+openstack service list
+```
+
+---
 
 ## Quick Start
 
-### 1. Clone the Repository
+### 1. Clone Repository
+
 ```bash
-git clone https://github.com/yourusername/COMPLIANCE-AS-CODE.git
+git clone https://github.com/vutd22uit/COMPLIANCE-AS-CODE.git
 cd COMPLIANCE-AS-CODE
 ```
 
 ### 2. Install Dependencies
+
 ```bash
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Install pre-commit hooks
-pre-commit install
-
 # Install InSpec
 curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec
 
-# Install Ansible
-pip install ansible
+# Install Python dependencies
+pip install -r requirements.txt
 ```
 
-### 3. Configure OpenStack Credentials
+### 3. Run Compliance Scan
+
 ```bash
-# Source your OpenStack RC file
-source openstack-rc.sh
-
-# Or set environment variables
-export OS_AUTH_URL=https://your-openstack:5000/v3
-export OS_USERNAME=admin
-export OS_PASSWORD=<password>
-export OS_PROJECT_NAME=admin
-export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_DOMAIN_NAME=Default
-```
-
-### 4. Run Your First Compliance Scan
-
-#### Scan OpenStack Configuration
-```bash
-# Run InSpec against OpenStack controller
+# Scan OpenStack (from controller node)
 inspec exec tests/inspec/openstack-cis \
-  -t ssh://root@controller-node \
+  -t ssh://deployer@controller-ip \
+  --reporter json:scan-results.json \
+  --chef-license accept-silent
+
+# Scan using Docker (for containerized services)
+for service in keystone nova neutron glance; do
+  docker exec kolla_$service cat /etc/$service/$service.conf > /tmp/$service.conf
+done
+
+inspec exec tests/inspec/openstack-cis \
   --reporter cli json:results.json
 ```
 
-#### Scan Linux Systems
+### 4. View Dashboard
+
 ```bash
-# Run Linux CIS Benchmark
-inspec exec tests/inspec/linux-cis \
-  -t ssh://root@target-host \
-  --reporter cli json:linux-results.json
+# Open demo dashboard
+open dashboards/demo-dashboard.html
+
+# Or start full monitoring stack
+cd dashboards && docker-compose up -d
+# Access Grafana at http://localhost:3000
 ```
-
-For detailed setup instructions, see [docs/getting-started.md](docs/getting-started.md)
-
-## Usage
-
-### OpenStack Compliance Scanning
-```bash
-# Scan Keystone (Identity)
-inspec exec tests/inspec/openstack-cis/controls/os-1-identity.rb \
-  -t ssh://root@controller
-
-# Scan Nova (Compute)
-inspec exec tests/inspec/openstack-cis/controls/os-2-compute.rb \
-  -t ssh://root@compute-node
-
-# Scan Neutron (Networking)
-inspec exec tests/inspec/openstack-cis/controls/os-3-networking.rb \
-  -t ssh://root@controller
-
-# Scan Cinder/Swift (Storage)
-inspec exec tests/inspec/openstack-cis/controls/os-4-storage.rb \
-  -t ssh://root@storage-node
-
-# Full OpenStack scan
-inspec exec tests/inspec/openstack-cis \
-  -t ssh://root@controller \
-  --reporter cli json:openstack-results.json
-```
-
-### Linux Hardening Scan
-```bash
-# Run OpenSCAP scan
-oscap xccdf eval \
-  --profile xccdf_org.ssgproject.content_profile_cis \
-  --results scan-results.xml \
-  /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
-
-# Run InSpec Linux CIS profile
-inspec exec tests/inspec/linux-cis \
-  -t ssh://root@target \
-  --reporter html:report.html
-```
-
-### Remediation
-```bash
-# Run Ansible remediation playbook
-ansible-playbook remediation/ansible/cis-linux-remediation.yml \
-  -i inventory.yml \
-  --limit openstack-nodes
-
-# Run specific remediation tasks
-ansible-playbook remediation/ansible/cis-linux-remediation.yml \
-  --tags ssh,auditd
-```
-
-### CI/CD Integration
-GitHub Actions workflows are provided in `ci/github-actions/`:
-- `compliance-check.yml` - Run on every PR
-- `runtime-scan.yml` - Scheduled daily scans
-
-## Documentation
-
-- [Architecture Overview](docs/architecture.md)
-- [Control Mapping](docs/control-mapping.md)
-- [Getting Started Guide](docs/getting-started.md)
-- [Writing Custom Policies](docs/writing-policies.md)
-- [Remediation Guide](docs/remediation.md)
-
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Workflow
-1. Fork the repository
-2. Create a feature branch
-3. Write tests for your changes
-4. Ensure all tests pass
-5. Submit a pull request
-
-## Roadmap
-
-### Phase 1 (Current) - Foundation
-- [x] Project structure setup
-- [x] Control mapping for OpenStack
-- [x] Basic InSpec controls (Identity, Compute, Network, Storage)
-- [ ] Complete all OpenStack sections
-- [ ] CI/CD integration
-
-### Phase 2 - Expansion
-- [ ] Glance (Image) controls
-- [ ] Horizon (Dashboard) controls
-- [ ] Heat (Orchestration) controls
-- [ ] Expanded Linux CIS coverage
-- [ ] OpenSCAP integration
-
-### Phase 3 - Enforcement & Remediation
-- [ ] Ansible playbooks for OpenStack hardening
-- [ ] Auto-remediation scripts
-- [ ] Exception management
-- [ ] Policy-as-code with OPA/Rego
-
-### Phase 4 - Reporting & Dashboard
-- [ ] Grafana dashboards
-- [ ] Compliance scorecards
-- [ ] Trend analysis
-- [ ] Audit reports
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Authors
-
-- Capstone Project Team
-
-## Acknowledgments
-
-- CIS Benchmarks
-- OpenStack Security Guide
-- NIST Cybersecurity Framework
-- Chef InSpec community
-
-## Support
-
-For questions and support:
-- Open an issue in this repository
-- Check the [documentation](docs/)
-- Review [examples](examples/)
 
 ---
 
-**Status**: Active Development
+## Usage
+
+### Scanning Kolla-Ansible Containers
+
+```bash
+# Enter a running container to check configs
+docker exec -it keystone bash
+cat /etc/keystone/keystone.conf | grep -E "^(admin_token|token_expiration)"
+
+# Or check from host
+docker exec keystone cat /etc/keystone/keystone.conf
+
+# Run InSpec against container
+inspec exec tests/inspec/openstack-cis/controls/os-1-identity.rb \
+  -t docker://keystone
+```
+
+### Remediation with Ansible
+
+```bash
+# Run OpenStack hardening playbook
+ansible-playbook remediation/ansible/cis-openstack-remediation.yml \
+  -i /etc/kolla/ansible/inventory/all-in-one \
+  --tags keystone,nova
+
+# After remediation, restart services via Kolla
+kolla-ansible reconfigure -i /etc/kolla/ansible/inventory/all-in-one
+```
+
+---
+
+## Evidence & Reporting
+
+### Collect Evidence
+
+```bash
+python evidence/collectors/evidence_collector.py \
+  --inspec-json scan-results.json \
+  --evidence-path ./evidence_store \
+  --store
+```
+
+### Generate Report
+
+```bash
+python evidence/reporters/compliance_reporter.py \
+  --evidence-path ./evidence_store \
+  --type daily \
+  --format markdown
+```
+
+---
+
+## Dashboard
+
+### Demo Dashboard (Standalone HTML)
+
+Open `dashboards/demo-dashboard.html` in any browser for a static compliance view.
+
+### Full Monitoring Stack
+
+```bash
+cd dashboards
+docker-compose up -d
+
+# Access:
+# - Grafana: http://localhost:3000 (admin/openstack-cis-2024)
+# - Prometheus: http://localhost:9091
+# - Alertmanager: http://localhost:9093
+```
+
+---
+
+## 📊 Current Status
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PROJECT COMPLETION STATUS                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  OpenStack CIS Benchmark:  ████████████████████░░░░  86%        │
+│  Linux CIS Benchmark:      █████████░░░░░░░░░░░░░░░  47%        │
+│  Evidence System:          ████████████████████████  100%       │
+│  Dashboard:                ████████████████████████  100%       │
+│  CI/CD Integration:        ████████████████████████  100%       │
+│                                                                  │
+│  Total Files: 55 | Controls: 88+ | Ready for Production: YES   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature/new-control`
+3. Commit changes: `git commit -m 'Add new control'`
+4. Push: `git push origin feature/new-control`
+5. Create Pull Request
+
+---
+
+## References
+
+- [CIS OpenStack Benchmark](https://www.cisecurity.org/benchmark/openstack)
+- [CIS Ubuntu Linux Benchmark](https://www.cisecurity.org/benchmark/ubuntu_linux)
+- [Kolla-Ansible Documentation](https://docs.openstack.org/kolla-ansible/yoga/)
+- [OpenStack Security Guide](https://docs.openstack.org/security-guide/)
+- [InSpec Documentation](https://docs.chef.io/inspec/)
+
+---
+
+## License
+
+MIT License - See [LICENSE](LICENSE)
+
+---
+
 **Last Updated**: 2025-12-29
-**Focus**: OpenStack CIS Benchmark Only
+**OpenStack Version**: Yoga (Kolla-Ansible)
+**Author**: Capstone Project Team

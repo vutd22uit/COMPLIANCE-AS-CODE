@@ -1,0 +1,225 @@
+name: Remediation Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target to remediate (controller, compute, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - controller
+          - compute
+          - all
+      dry_run:
+        description: 'Dry run mode (check only, no changes)'
+        required: true
+        default: true
+        type: boolean
+      tags:
+        description: 'Ansible tags to run (comma-separated)'
+        required: false
+        default: ''
+
+env:
+  ANSIBLE_VERSION: '2.15'
+
+jobs:
+  # ============================================
+  # Pre-flight Checks
+  # ============================================
+  preflight:
+    name: Pre-flight Validation
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        id: check
+        run: |
+          echo "Target: ${{ inputs.target }}"
+          echo "Dry Run: ${{ inputs.dry_run }}"
+          echo "proceed=true" >> $GITHUB_OUTPUT
+
+      - name: Require approval for production changes
+        if: inputs.dry_run == false
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          approvers: devops-team
+          minimum-approvals: 1
+          issue-title: "Remediation Request: ${{ inputs.target }}"
+          issue-body: |
+            **Remediation Request**
+            - Target: ${{ inputs.target }}
+            - Dry Run: ${{ inputs.dry_run }}
+            - Tags: ${{ inputs.tags }}
+            
+            Please review and approve to proceed.
+
+  # ============================================
+  # Controller Remediation
+  # ============================================
+  remediate-controller:
+    name: Remediate Controller
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'true' && (inputs.target == 'controller' || inputs.target == 'all')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible==${{ env.ANSIBLE_VERSION }}
+          ansible --version
+
+      - name: Setup SSH Key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.OPENSTACK_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.OPENSTACK_CONTROLLER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Create inventory
+        run: |
+          cat > inventory.ini << EOF
+          [controller]
+          controller ansible_host=${{ secrets.OPENSTACK_CONTROLLER_HOST }} ansible_user=${{ secrets.OPENSTACK_SSH_USER }}
+          
+          [controller:vars]
+          ansible_python_interpreter=/usr/bin/python3
+          EOF
+
+      - name: Run Ansible Playbook (Dry Run)
+        if: inputs.dry_run == true
+        run: |
+          ansible-playbook remediation/ansible/openstack-hardening.yml \
+            -i inventory.ini \
+            --limit controller \
+            --check --diff \
+            ${{ inputs.tags != '' && format('--tags {0}', inputs.tags) || '' }}
+
+      - name: Run Ansible Playbook (Apply)
+        if: inputs.dry_run == false
+        run: |
+          ansible-playbook remediation/ansible/openstack-hardening.yml \
+            -i inventory.ini \
+            --limit controller \
+            ${{ inputs.tags != '' && format('--tags {0}', inputs.tags) || '' }}
+
+  # ============================================
+  # Compute Nodes Remediation
+  # ============================================
+  remediate-compute:
+    name: Remediate Compute Nodes
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'true' && (inputs.target == 'compute' || inputs.target == 'all')
+    strategy:
+      matrix:
+        node: [compute-1, compute-2]
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: pip install ansible==${{ env.ANSIBLE_VERSION }}
+
+      - name: Setup SSH Key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.OPENSTACK_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Create inventory
+        run: |
+          cat > inventory.ini << EOF
+          [compute]
+          ${{ matrix.node }} ansible_host=${{ secrets[format('OPENSTACK_{0}_HOST', matrix.node)] }} ansible_user=${{ secrets.OPENSTACK_SSH_USER }}
+          
+          [compute:vars]
+          ansible_python_interpreter=/usr/bin/python3
+          EOF
+
+      - name: Run Ansible Playbook
+        run: |
+          ansible-playbook remediation/ansible/openstack-hardening.yml \
+            -i inventory.ini \
+            --limit compute \
+            ${{ inputs.dry_run == true && '--check --diff' || '' }} \
+            ${{ inputs.tags != '' && format('--tags {0}', inputs.tags) || '' }}
+
+  # ============================================
+  # Post-Remediation Validation
+  # ============================================
+  validate:
+    name: Post-Remediation Scan
+    runs-on: ubuntu-latest
+    needs: [remediate-controller, remediate-compute]
+    if: always() && inputs.dry_run == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install InSpec
+        run: |
+          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.OPENSTACK_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.OPENSTACK_CONTROLLER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Run validation scan
+        run: |
+          inspec exec tests/inspec/openstack-cis \
+            -t ssh://${{ secrets.OPENSTACK_SSH_USER }}@${{ secrets.OPENSTACK_CONTROLLER_HOST }} \
+            --chef-license=accept-silent \
+            --reporter json:validation-results.json \
+            || true
+
+      - name: Check compliance improvement
+        run: |
+          PASSED=$(jq '[.profiles[].controls[].results[] | select(.status == "passed")] | length' validation-results.json)
+          FAILED=$(jq '[.profiles[].controls[].results[] | select(.status == "failed")] | length' validation-results.json)
+          TOTAL=$((PASSED + FAILED))
+          SCORE=$((PASSED * 100 / TOTAL))
+          
+          echo "## Post-Remediation Compliance Score: $SCORE%" >> $GITHUB_STEP_SUMMARY
+          
+          if [ $SCORE -lt 80 ]; then
+            echo "⚠️ Compliance score still below 80%. Additional remediation may be required." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Compliance score is acceptable." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload validation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-remediation-results
+          path: validation-results.json
+          retention-days: 30

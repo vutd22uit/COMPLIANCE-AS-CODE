@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Evidence Collector for CIS Benchmark Compliance
+Evidence Collector for OpenStack CIS Benchmark Compliance
 
 This script collects, normalizes, and stores compliance evidence
-from various scanners (InSpec, Checkov, AWS Config).
+from various scanners (InSpec, OpenSCAP, Ansible).
 """
 
 import json
 import hashlib
-import boto3
 from datetime import datetime, timezone
 from typing import Dict, List, Any
 from pathlib import Path
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -23,17 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 class EvidenceCollector:
-    """Collects and processes compliance evidence"""
+    """Collects and processes OpenStack compliance evidence"""
 
-    def __init__(self, evidence_bucket: str):
+    def __init__(self, evidence_path: str = None):
         """
         Initialize evidence collector
 
         Args:
-            evidence_bucket: S3 bucket for evidence storage
+            evidence_path: Local path for evidence storage (default: ./evidence_store)
         """
-        self.evidence_bucket = evidence_bucket
-        self.s3_client = boto3.client('s3')
+        self.evidence_path = evidence_path or os.path.join(os.getcwd(), 'evidence_store')
+        Path(self.evidence_path).mkdir(parents=True, exist_ok=True)
 
     def collect_inspec_scan(self, inspec_json_path: str) -> Dict[str, Any]:
         """
@@ -56,6 +56,16 @@ class EvidenceCollector:
         # Calculate SHA-256
         content_hash = self._calculate_hash(json.dumps(inspec_data, sort_keys=True))
 
+        # Determine profile type
+        profile_name = inspec_data.get('profiles', [{}])[0].get('name', 'unknown')
+        
+        if 'openstack' in profile_name.lower():
+            standard = 'CIS OpenStack Foundations Benchmark'
+        elif 'linux' in profile_name.lower():
+            standard = 'CIS Linux Benchmark'
+        else:
+            standard = 'CIS Benchmark'
+
         # Create evidence structure
         evidence = {
             "evidence_type": "scan_result",
@@ -63,23 +73,20 @@ class EvidenceCollector:
             "scanner": "inspec",
             "scanner_version": inspec_data.get('version', 'unknown'),
             "profile": {
-                "name": inspec_data.get('profiles', [{}])[0].get('name', 'unknown'),
+                "name": profile_name,
                 "version": inspec_data.get('profiles', [{}])[0].get('version', '1.0.0'),
-                "title": inspec_data.get('profiles', [{}])[0].get('title', 'CIS Benchmark')
+                "title": inspec_data.get('profiles', [{}])[0].get('title', standard)
+            },
+            "target": {
+                "platform": "openstack",
+                "hostname": inspec_data.get('platform', {}).get('name', 'unknown'),
+                "target_id": inspec_data.get('platform', {}).get('target_id', 'unknown')
             },
             "scan_metadata": {
                 "start_time": inspec_data.get('statistics', {}).get('start_time', datetime.now(timezone.utc).isoformat()),
                 "duration_seconds": inspec_data.get('statistics', {}).get('duration', 0)
             },
-            "statistics": {
-                "total_controls": len(inspec_data.get('profiles', [{}])[0].get('controls', [])),
-                "passed": sum(1 for c in inspec_data.get('profiles', [{}])[0].get('controls', [])
-                             if c.get('results', [{}])[0].get('status') == 'passed'),
-                "failed": sum(1 for c in inspec_data.get('profiles', [{}])[0].get('controls', [])
-                             if c.get('results', [{}])[0].get('status') == 'failed'),
-                "skipped": sum(1 for c in inspec_data.get('profiles', [{}])[0].get('controls', [])
-                              if c.get('results', [{}])[0].get('status') == 'skipped')
-            },
+            "statistics": self._calculate_statistics(inspec_data),
             "controls": inspec_data.get('profiles', [{}])[0].get('controls', []),
             "sha256": content_hash,
             "timestamp": datetime.now(timezone.utc).isoformat()
@@ -91,6 +98,39 @@ class EvidenceCollector:
         logger.info(f"  Failed: {evidence['statistics']['failed']}")
 
         return evidence
+
+    def _calculate_statistics(self, inspec_data: Dict[str, Any]) -> Dict[str, int]:
+        """Calculate control statistics from InSpec data"""
+        controls = inspec_data.get('profiles', [{}])[0].get('controls', [])
+        
+        passed = 0
+        failed = 0
+        skipped = 0
+        
+        for control in controls:
+            results = control.get('results', [])
+            if not results:
+                skipped += 1
+                continue
+            
+            # Check if any result failed
+            has_failure = any(r.get('status') == 'failed' for r in results)
+            has_pass = any(r.get('status') == 'passed' for r in results)
+            
+            if has_failure:
+                failed += 1
+            elif has_pass:
+                passed += 1
+            else:
+                skipped += 1
+        
+        return {
+            "total_controls": len(controls),
+            "passed": passed,
+            "failed": failed,
+            "skipped": skipped,
+            "compliance_percentage": round((passed / len(controls) * 100), 2) if controls else 0
+        }
 
     def normalize_findings(self, raw_evidence: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -105,13 +145,12 @@ class EvidenceCollector:
         logger.info(f"Normalizing findings from {raw_evidence['evidence_id']}")
 
         normalized_findings = []
-
         scanner = raw_evidence['scanner']
 
         if scanner == 'inspec':
             normalized_findings = self._normalize_inspec(raw_evidence)
-        elif scanner == 'checkov':
-            normalized_findings = self._normalize_checkov(raw_evidence)
+        elif scanner == 'openscap':
+            normalized_findings = self._normalize_openscap(raw_evidence)
         else:
             logger.warning(f"Unknown scanner type: {scanner}")
 
@@ -126,37 +165,72 @@ class EvidenceCollector:
         for control in evidence.get('controls', []):
             for result in control.get('results', []):
                 if result.get('status') in ['failed', 'passed']:
+                    # Determine control category
+                    control_id = control.get('id', 'unknown')
+                    
+                    if control_id.startswith('os-identity'):
+                        section = '1. Identity (Keystone)'
+                        service = 'keystone'
+                    elif control_id.startswith('os-compute'):
+                        section = '2. Compute (Nova)'
+                        service = 'nova'
+                    elif control_id.startswith('os-networking'):
+                        section = '3. Networking (Neutron)'
+                        service = 'neutron'
+                    elif control_id.startswith('os-storage'):
+                        section = '4. Storage (Cinder/Swift)'
+                        service = 'cinder'
+                    elif control_id.startswith('os-image'):
+                        section = '5. Image (Glance)'
+                        service = 'glance'
+                    elif control_id.startswith('os-dashboard'):
+                        section = '6. Dashboard (Horizon)'
+                        service = 'horizon'
+                    elif control_id.startswith('os-orchestration'):
+                        section = '7. Orchestration (Heat)'
+                        service = 'heat'
+                    elif control_id.startswith('cis-'):
+                        section = 'Linux CIS Benchmark'
+                        service = 'linux'
+                    else:
+                        section = 'Other'
+                        service = 'unknown'
+
                     finding = {
                         "finding_id": self._generate_finding_id(),
                         "evidence_id": evidence['evidence_id'],
                         "timestamp": datetime.now(timezone.utc).isoformat(),
 
                         "control": {
-                            "id": control.get('tags', {}).get('cis', control.get('id')),
+                            "id": control_id,
                             "title": control.get('title', ''),
-                            "standard": control.get('tags', {}).get('standard', 'CIS Benchmark'),
-                            "section": control.get('tags', {}).get('section', ''),
+                            "standard": control.get('tags', {}).get('standard', 'CIS OpenStack Benchmark'),
+                            "section": section,
                             "description": control.get('desc', '')
                         },
 
-                        "severity": control.get('tags', {}).get('severity', 'MEDIUM').upper(),
+                        "severity": self._determine_severity(control),
                         "status": "FAIL" if result.get('status') == 'failed' else "PASS",
 
                         "resource": {
+                            "type": service,
                             "id": result.get('resource', 'unknown'),
-                            "type": self._infer_resource_type(result.get('resource', '')),
-                            "name": self._extract_resource_name(result.get('resource', '')),
+                            "config_file": self._extract_config_file(result.get('resource', '')),
+                            "hostname": evidence.get('target', {}).get('hostname', 'unknown')
                         },
 
                         "evidence": {
                             "scanner": "inspec",
                             "message": result.get('message', ''),
-                            "code_desc": result.get('code_desc', '')
+                            "code_desc": result.get('code_desc', ''),
+                            "actual_value": self._extract_actual_value(result),
+                            "expected_value": self._extract_expected_value(result)
                         },
 
                         "remediation": {
-                            "available": self._is_auto_remediable(control.get('tags', {}).get('cis', '')),
-                            "method": self._get_remediation_method(control.get('tags', {}).get('cis', '')),
+                            "available": self._is_auto_remediable(control_id),
+                            "method": self._get_remediation_method(control_id),
+                            "playbook": self._get_remediation_playbook(control_id),
                             "status": "pending"
                         },
 
@@ -171,20 +245,65 @@ class EvidenceCollector:
 
         return findings
 
-    def _normalize_checkov(self, evidence: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Normalize Checkov evidence to canonical format"""
-        # Simplified Checkov normalization
+    def _normalize_openscap(self, evidence: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Normalize OpenSCAP evidence to canonical format"""
         findings = []
-        # Implementation details...
+        # Implementation for OpenSCAP normalization
         return findings
 
-    def store_evidence(self, evidence: Dict[str, Any], evidence_type: str):
+    def _determine_severity(self, control: Dict[str, Any]) -> str:
+        """Determine severity from control tags or impact"""
+        severity = control.get('tags', {}).get('severity', '').upper()
+        if severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
+            return severity
+        
+        impact = control.get('impact', 0.5)
+        if impact >= 0.9:
+            return 'CRITICAL'
+        elif impact >= 0.7:
+            return 'HIGH'
+        elif impact >= 0.4:
+            return 'MEDIUM'
+        else:
+            return 'LOW'
+
+    def _extract_config_file(self, resource: str) -> str:
+        """Extract config file path from resource"""
+        if '/etc/' in resource:
+            return resource
+        elif 'keystone' in resource.lower():
+            return '/etc/keystone/keystone.conf'
+        elif 'nova' in resource.lower():
+            return '/etc/nova/nova.conf'
+        elif 'neutron' in resource.lower():
+            return '/etc/neutron/neutron.conf'
+        elif 'cinder' in resource.lower():
+            return '/etc/cinder/cinder.conf'
+        else:
+            return 'unknown'
+
+    def _extract_actual_value(self, result: Dict[str, Any]) -> Any:
+        """Extract actual value from result"""
+        message = result.get('message', '')
+        # Parse message to extract actual value
+        return message
+
+    def _extract_expected_value(self, result: Dict[str, Any]) -> Any:
+        """Extract expected value from result"""
+        code_desc = result.get('code_desc', '')
+        # Parse code_desc to extract expected value
+        return code_desc
+
+    def store_evidence(self, evidence: Dict[str, Any], evidence_type: str) -> str:
         """
-        Store evidence to S3 bucket
+        Store evidence to local filesystem
 
         Args:
             evidence: Evidence dictionary
             evidence_type: Type of evidence (raw-scans, normalized-findings, etc.)
+
+        Returns:
+            Path to stored evidence file
         """
         timestamp = datetime.now(timezone.utc)
         year = timestamp.strftime('%Y')
@@ -194,51 +313,34 @@ class EvidenceCollector:
         scanner = evidence.get('scanner', 'unknown')
         evidence_id = evidence.get('evidence_id', 'unknown')
 
-        # Build S3 key
-        if evidence_type == 'raw-scans':
-            s3_key = f"{evidence_type}/{scanner}/{year}/{month}/{day}/{evidence_id}.json"
-        elif evidence_type == 'normalized-findings':
-            s3_key = f"{evidence_type}/{year}/{month}/{day}/{evidence_id}.ndjson"
-        else:
-            s3_key = f"{evidence_type}/{year}/{month}/{day}/{evidence_id}.json"
+        # Build path
+        evidence_dir = Path(self.evidence_path) / evidence_type / scanner / year / month / day
+        evidence_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Storing evidence to s3://{self.evidence_bucket}/{s3_key}")
+        file_path = evidence_dir / f"{evidence_id}.json"
 
-        # Convert to JSON
-        evidence_json = json.dumps(evidence, indent=2, sort_keys=True)
+        logger.info(f"Storing evidence to {file_path}")
 
-        # Upload to S3
-        try:
-            self.s3_client.put_object(
-                Bucket=self.evidence_bucket,
-                Key=s3_key,
-                Body=evidence_json.encode('utf-8'),
-                ContentType='application/json',
-                ServerSideEncryption='aws:kms',
-                Metadata={
-                    'evidence-id': evidence.get('evidence_id', ''),
-                    'evidence-type': evidence_type,
-                    'scanner': scanner,
-                    'timestamp': timestamp.isoformat()
-                }
-            )
-            logger.info(f"Evidence stored successfully: {s3_key}")
-            return s3_key
+        # Convert to JSON and save
+        with open(file_path, 'w') as f:
+            json.dump(evidence, f, indent=2, sort_keys=True)
 
-        except Exception as e:
-            logger.error(f"Failed to store evidence: {e}")
-            raise
+        logger.info(f"Evidence stored successfully: {file_path}")
+        return str(file_path)
 
-    def store_normalized_findings(self, findings: List[Dict[str, Any]]):
+    def store_normalized_findings(self, findings: List[Dict[str, Any]]) -> str:
         """
         Store normalized findings as NDJSON
 
         Args:
             findings: List of normalized finding dictionaries
+
+        Returns:
+            Path to stored findings file
         """
         if not findings:
             logger.warning("No findings to store")
-            return
+            return ""
 
         timestamp = datetime.now(timezone.utc)
         year = timestamp.strftime('%Y')
@@ -247,34 +349,21 @@ class EvidenceCollector:
         hour = timestamp.strftime('%H')
         minute = timestamp.strftime('%M')
 
-        # Build S3 key
-        s3_key = f"normalized-findings/{year}/{month}/{day}/findings-{year}-{month}-{day}-{hour}-{minute}.ndjson"
+        # Build path
+        findings_dir = Path(self.evidence_path) / "normalized-findings" / year / month / day
+        findings_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Storing {len(findings)} normalized findings to s3://{self.evidence_bucket}/{s3_key}")
+        file_path = findings_dir / f"findings-{year}-{month}-{day}-{hour}-{minute}.ndjson"
 
-        # Convert to NDJSON (newline-delimited JSON)
-        ndjson_lines = [json.dumps(finding, sort_keys=True) for finding in findings]
-        ndjson_content = '\n'.join(ndjson_lines)
+        logger.info(f"Storing {len(findings)} normalized findings to {file_path}")
 
-        # Upload to S3
-        try:
-            self.s3_client.put_object(
-                Bucket=self.evidence_bucket,
-                Key=s3_key,
-                Body=ndjson_content.encode('utf-8'),
-                ContentType='application/x-ndjson',
-                ServerSideEncryption='aws:kms',
-                Metadata={
-                    'finding-count': str(len(findings)),
-                    'timestamp': timestamp.isoformat()
-                }
-            )
-            logger.info(f"Normalized findings stored successfully: {s3_key}")
-            return s3_key
+        # Convert to NDJSON
+        with open(file_path, 'w') as f:
+            for finding in findings:
+                f.write(json.dumps(finding, sort_keys=True) + '\n')
 
-        except Exception as e:
-            logger.error(f"Failed to store findings: {e}")
-            raise
+        logger.info(f"Normalized findings stored successfully: {file_path}")
+        return str(file_path)
 
     def create_compliance_snapshot(self, findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -288,6 +377,9 @@ class EvidenceCollector:
         """
         logger.info(f"Creating compliance snapshot from {len(findings)} findings")
 
+        if not findings:
+            return {}
+
         total_controls = len(set(f['control']['id'] for f in findings))
         passed = sum(1 for f in findings if f['status'] == 'PASS')
         failed = sum(1 for f in findings if f['status'] == 'FAIL')
@@ -295,6 +387,7 @@ class EvidenceCollector:
         snapshot = {
             "snapshot_id": self._generate_snapshot_id(),
             "snapshot_type": "daily",
+            "platform": "openstack",
             "timestamp": datetime.now(timezone.utc).isoformat(),
 
             "overall": {
@@ -305,6 +398,7 @@ class EvidenceCollector:
             },
 
             "by_severity": self._calculate_by_severity(findings),
+            "by_section": self._calculate_by_section(findings),
             "top_violations": self._get_top_violations(findings, limit=10)
         }
 
@@ -315,7 +409,6 @@ class EvidenceCollector:
 
     def _calculate_by_severity(self, findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calculate compliance by severity level"""
-
         severities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
         by_severity = {}
 
@@ -333,10 +426,31 @@ class EvidenceCollector:
 
         return by_severity
 
+    def _calculate_by_section(self, findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate compliance by section"""
+        by_section = {}
+
+        for finding in findings:
+            section = finding['control']['section']
+            if section not in by_section:
+                by_section[section] = {"total": 0, "passed": 0, "failed": 0}
+
+            by_section[section]['total'] += 1
+            if finding['status'] == 'PASS':
+                by_section[section]['passed'] += 1
+            else:
+                by_section[section]['failed'] += 1
+
+        # Calculate percentages
+        for section in by_section:
+            total = by_section[section]['total']
+            passed = by_section[section]['passed']
+            by_section[section]['compliance_percentage'] = round((passed / total * 100), 2) if total > 0 else 0
+
+        return by_section
+
     def _get_top_violations(self, findings: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
         """Get top violations by occurrence count"""
-
-        # Group by control ID
         violations = {}
         for f in findings:
             if f['status'] == 'FAIL':
@@ -346,13 +460,12 @@ class EvidenceCollector:
                         "control_id": control_id,
                         "title": f['control']['title'],
                         "severity": f['severity'],
+                        "section": f['control']['section'],
                         "affected_resources": 0
                     }
                 violations[control_id]['affected_resources'] += 1
 
-        # Sort by affected resources
         top_violations = sorted(violations.values(), key=lambda x: x['affected_resources'], reverse=True)
-
         return top_violations[:limit]
 
     @staticmethod
@@ -383,65 +496,54 @@ class EvidenceCollector:
         return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
     @staticmethod
-    def _infer_resource_type(resource_arn: str) -> str:
-        """Infer resource type from ARN or resource name"""
-        if ':s3:::' in resource_arn:
-            return 's3_bucket'
-        elif ':ec2:' in resource_arn:
-            return 'ec2_instance'
-        elif ':rds:' in resource_arn:
-            return 'rds_database'
-        elif ':iam:' in resource_arn:
-            return 'iam_user'
-        else:
-            return 'unknown'
-
-    @staticmethod
-    def _extract_resource_name(resource_id: str) -> str:
-        """Extract resource name from ARN or ID"""
-        if ':::' in resource_id:
-            return resource_id.split(':::')[-1]
-        elif '/' in resource_id:
-            return resource_id.split('/')[-1]
-        else:
-            return resource_id
-
-    @staticmethod
     def _is_auto_remediable(control_id: str) -> bool:
         """Check if control has auto-remediation available"""
         auto_remediable_controls = [
-            'CIS-AWS-2.1.4',  # S3 public access block
-            'CIS-AWS-2.1.2',  # S3 encryption
-            'CIS-AWS-2.2.1',  # EBS encryption
-            'CIS-AWS-3.1',    # CloudTrail enabled
+            'os-identity-1.1',   # Keystone file permissions
+            'os-identity-1.2',
+            'os-compute-2.1',    # Nova file permissions
+            'os-compute-2.2',
+            'os-networking-3.1', # Neutron file permissions
+            'os-networking-3.2',
+            'os-storage-4.1',    # Cinder file permissions
+            'os-storage-4.2',
         ]
         return control_id in auto_remediable_controls
 
     @staticmethod
     def _get_remediation_method(control_id: str) -> str:
         """Get remediation method for control"""
-        if control_id.startswith('CIS-AWS-2.1'):
-            return 'cloud-custodian'
-        elif control_id.startswith('CIS-LINUX'):
+        if control_id.startswith('os-'):
+            return 'ansible'
+        elif control_id.startswith('cis-'):
             return 'ansible'
         else:
             return 'manual'
 
+    @staticmethod
+    def _get_remediation_playbook(control_id: str) -> str:
+        """Get remediation playbook for control"""
+        if control_id.startswith('os-'):
+            return 'remediation/ansible/cis-openstack-remediation.yml'
+        elif control_id.startswith('cis-'):
+            return 'remediation/ansible/cis-linux-remediation.yml'
+        else:
+            return ''
+
 
 def main():
     """Main function for testing"""
-
     import argparse
 
-    parser = argparse.ArgumentParser(description='Collect compliance evidence')
+    parser = argparse.ArgumentParser(description='Collect OpenStack compliance evidence')
     parser.add_argument('--inspec-json', help='Path to InSpec JSON output')
-    parser.add_argument('--bucket', required=True, help='S3 evidence bucket name')
-    parser.add_argument('--store', action='store_true', help='Store evidence to S3')
+    parser.add_argument('--evidence-path', default='./evidence_store', help='Local evidence storage path')
+    parser.add_argument('--store', action='store_true', help='Store evidence locally')
 
     args = parser.parse_args()
 
     # Initialize collector
-    collector = EvidenceCollector(evidence_bucket=args.bucket)
+    collector = EvidenceCollector(evidence_path=args.evidence_path)
 
     # Collect InSpec scan
     if args.inspec_json:
@@ -461,12 +563,14 @@ def main():
 
         # Print summary
         print(f"\n{'='*60}")
-        print(f"Evidence Collection Summary")
+        print(f"OpenStack Compliance Evidence Collection Summary")
         print(f"{'='*60}")
         print(f"Evidence ID: {evidence['evidence_id']}")
+        print(f"Platform: OpenStack")
         print(f"Total Controls: {evidence['statistics']['total_controls']}")
         print(f"Passed: {evidence['statistics']['passed']}")
         print(f"Failed: {evidence['statistics']['failed']}")
+        print(f"Compliance: {evidence['statistics']['compliance_percentage']}%")
         print(f"Normalized Findings: {len(findings)}")
         print(f"{'='*60}\n")
 

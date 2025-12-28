@@ -1,10 +1,10 @@
-# Evidence Collection System
+# Evidence Collection System - OpenStack CIS Benchmark
 
 ## Overview
 
-This directory contains the **Evidence Collection System** for CIS Benchmark compliance auditing.
+This directory contains the **Evidence Collection System** for OpenStack CIS Benchmark compliance auditing.
 
-All compliance evidence is **immutable**, **versioned**, **encrypted**, and **retained for 7 years** in S3.
+All compliance evidence is **immutable**, **versioned**, **encrypted**, and **retained for 7 years**.
 
 ---
 
@@ -16,7 +16,7 @@ evidence/
 ├── EVIDENCE-SCHEMA.md          # Complete evidence schema documentation
 │
 ├── collectors/                  # Evidence collection scripts
-│   ├── evidence_collector.py   # Main collector (InSpec, Checkov → S3)
+│   ├── evidence_collector.py   # Main collector (InSpec, OpenSCAP → Storage)
 │   └── __init__.py
 │
 ├── reporters/                   # Report generation
@@ -25,7 +25,6 @@ evidence/
 │
 ├── samples/                     # Sample evidence data for testing
 │   ├── sample-inspec-scan.json  # Example InSpec output
-│   ├── sample-checkov-scan.json # Example Checkov output
 │   └── sample-remediation.json  # Example remediation log
 │
 └── scripts/                     # Utility scripts
@@ -41,49 +40,34 @@ evidence/
 ### 1. Install Dependencies
 
 ```bash
-pip install boto3 jq
+pip install -r requirements.txt
 ```
 
-### 2. Configure AWS
+### 2. Run InSpec Scan & Collect Evidence
 
 ```bash
-# Set evidence bucket name
-export EVIDENCE_BUCKET="compliance-evidence-123456789012"
-
-# Configure AWS credentials
-aws configure
-```
-
-### 3. Collect Evidence from InSpec Scan
-
-```bash
-# Run InSpec scan
-inspec exec tests/inspec/aws-cis -t aws:// --reporter json:scan-results.json
+# Run InSpec scan on OpenStack controller
+inspec exec tests/inspec/openstack-cis \
+  -t ssh://root@controller-node \
+  --reporter json:scan-results.json \
+  --chef-license accept-silent
 
 # Collect and store evidence
 python evidence/collectors/evidence_collector.py \
   --inspec-json scan-results.json \
-  --bucket $EVIDENCE_BUCKET \
+  --evidence-path ./evidence_store \
   --store
 ```
 
-### 4. Generate Compliance Report
+### 3. Generate Compliance Report
 
 ```bash
 # Daily report
 python evidence/reporters/compliance_reporter.py \
-  --bucket $EVIDENCE_BUCKET \
+  --evidence-path ./evidence_store \
   --type daily \
-  --date 2025-12-07 \
+  --date 2025-12-29 \
   --format markdown
-
-# Audit report for specific control
-python evidence/reporters/compliance_reporter.py \
-  --bucket $EVIDENCE_BUCKET \
-  --type audit \
-  --control CIS-AWS-2.1.4 \
-  --format markdown \
-  --save
 ```
 
 ---
@@ -93,32 +77,26 @@ python evidence/reporters/compliance_reporter.py \
 ### 1. Raw Scan Results
 - **Purpose**: Original scanner output
 - **Format**: JSON
-- **Location**: `s3://evidence/raw-scans/`
+- **Location**: `evidence_store/raw-scans/{scanner}/{year}/{month}/{day}/`
 - **Retention**: 7 years
 
 ### 2. Normalized Findings
 - **Purpose**: Canonical format across all scanners
-- **Format**: NDJSON
-- **Location**: `s3://evidence/normalized-findings/`
+- **Format**: NDJSON (newline-delimited JSON)
+- **Location**: `evidence_store/normalized-findings/{year}/{month}/{day}/`
 - **Retention**: 3 years
 
 ### 3. Remediation Logs
 - **Purpose**: Audit trail of all fixes
 - **Format**: JSON
-- **Location**: `s3://evidence/remediations/`
+- **Location**: `evidence_store/remediations/{year}/{month}/{day}/`
 - **Retention**: 7 years
 
 ### 4. Compliance Snapshots
 - **Purpose**: Point-in-time compliance state
 - **Format**: JSON
-- **Location**: `s3://evidence/snapshots/`
+- **Location**: `evidence_store/snapshots/daily/{year}/{month}/`
 - **Retention**: 1 year
-
-### 5. Audit Trail
-- **Purpose**: Every action taken
-- **Format**: NDJSON
-- **Location**: `s3://evidence/audit-trail/`
-- **Retention**: 7 years
 
 ---
 
@@ -130,7 +108,7 @@ python evidence/reporters/compliance_reporter.py \
 from evidence.collectors.evidence_collector import EvidenceCollector
 
 # Initialize collector
-collector = EvidenceCollector(evidence_bucket="compliance-evidence-123456789012")
+collector = EvidenceCollector(evidence_path="./evidence_store")
 
 # Collect InSpec scan
 evidence = collector.collect_inspec_scan("scan-results.json")
@@ -153,22 +131,16 @@ collector.store_evidence(snapshot, 'snapshots/daily')
 from evidence.reporters.compliance_reporter import ComplianceReporter
 
 # Initialize reporter
-reporter = ComplianceReporter(evidence_bucket="compliance-evidence-123456789012")
+reporter = ComplianceReporter(evidence_path="./evidence_store")
 
 # Generate daily report
-daily_report = reporter.generate_daily_report(date="2025-12-07")
-
-# Generate audit report
-audit_report = reporter.generate_audit_report(
-    control_id="CIS-AWS-2.1.4",
-    date_range=("2025-11-01", "2025-12-07")
-)
+daily_report = reporter.generate_daily_report(date="2025-12-29")
 
 # Generate markdown report
 markdown = reporter.generate_markdown_report(daily_report)
 print(markdown)
 
-# Save report to S3
+# Save report
 reporter.save_report(daily_report, format='markdown')
 ```
 
@@ -176,47 +148,41 @@ reporter.save_report(daily_report, format='markdown')
 
 ## Evidence Schema
 
-**See**: [EVIDENCE-SCHEMA.md](EVIDENCE-SCHEMA.md) for complete schema documentation.
-
-### Canonical Finding Format
+### Canonical Finding Format (OpenStack)
 
 ```json
 {
-  "finding_id": "find-20251207-103015-001",
-  "timestamp": "2025-12-07T10:30:15Z",
+  "finding_id": "find-20251229-103015-abc12345",
+  "timestamp": "2025-12-29T10:30:15Z",
 
   "control": {
-    "id": "CIS-AWS-2.1.4",
-    "title": "Ensure S3 buckets are configured with 'Block public access'",
-    "standard": "CIS AWS Foundations Benchmark v1.5.0",
-    "section": "2.1 Storage"
+    "id": "os-identity-1.1",
+    "title": "Ensure keystone.conf ownership is set to root:keystone",
+    "standard": "CIS OpenStack Foundations Benchmark",
+    "section": "1. Identity (Keystone)"
   },
 
   "severity": "CRITICAL",
   "status": "FAIL",
 
   "resource": {
-    "id": "arn:aws:s3:::my-bucket",
-    "type": "s3_bucket",
-    "account_id": "123456789012",
-    "region": "us-east-1"
+    "type": "keystone",
+    "id": "/etc/keystone/keystone.conf",
+    "config_file": "/etc/keystone/keystone.conf",
+    "hostname": "controller-node"
   },
 
   "evidence": {
     "scanner": "inspec",
-    "actual_value": {
-      "block_public_acls": false,
-      "block_public_policy": false
-    },
-    "expected_value": {
-      "block_public_acls": true,
-      "block_public_policy": true
-    }
+    "message": "File owner is 'nova' instead of 'root'",
+    "actual_value": {"owner": "nova"},
+    "expected_value": {"owner": "root"}
   },
 
   "remediation": {
     "available": true,
-    "method": "cloud-custodian",
+    "method": "ansible",
+    "playbook": "remediation/ansible/cis-openstack-remediation.yml",
     "status": "pending"
   }
 }
@@ -224,94 +190,18 @@ reporter.save_report(daily_report, format='markdown')
 
 ---
 
-## S3 Bucket Configuration
+## OpenStack Service Mapping
 
-### Required Configuration
-
-```bash
-# Enable versioning
-aws s3api put-bucket-versioning \
-  --bucket compliance-evidence-123456789012 \
-  --versioning-configuration Status=Enabled
-
-# Enable object lock (immutability)
-aws s3api put-object-lock-configuration \
-  --bucket compliance-evidence-123456789012 \
-  --object-lock-configuration \
-    'ObjectLockEnabled=Enabled,Rule={DefaultRetention={Mode=GOVERNANCE,Days=2555}}'
-
-# Block public access
-aws s3api put-public-access-block \
-  --bucket compliance-evidence-123456789012 \
-  --public-access-block-configuration \
-    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-
-# Enable encryption
-aws s3api put-bucket-encryption \
-  --bucket compliance-evidence-123456789012 \
-  --server-side-encryption-configuration \
-    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"aws:kms","KMSMasterKeyID":"arn:aws:kms:us-east-1:123456789012:key/evidence-key"}}]}'
-
-# Set lifecycle policy
-aws s3api put-bucket-lifecycle-configuration \
-  --bucket compliance-evidence-123456789012 \
-  --lifecycle-configuration file://lifecycle-policy.json
-```
-
----
-
-## Testing
-
-### Run Demo Flow
-
-```bash
-# Complete end-to-end demo
-bash evidence/scripts/demo-evidence-flow.sh
-```
-
-### Verify Evidence Integrity
-
-```bash
-# Verify SHA-256 hashes
-bash evidence/scripts/verify-integrity.sh s3://evidence/raw-scans/inspec/2025/12/07/
-```
-
-### Generate Sample Data
-
-```bash
-# Create sample evidence for testing
-python evidence/scripts/generate-sample-data.py --bucket $EVIDENCE_BUCKET
-```
-
----
-
-## For Auditors
-
-**See**: [docs/AUDIT-HANDBOOK.md](../docs/AUDIT-HANDBOOK.md)
-
-Key points:
-- All evidence is **immutable** (S3 object lock)
-- All evidence is **versioned** (full history)
-- All evidence is **encrypted** (KMS)
-- All evidence includes **SHA-256 hash** for integrity
-- Retention: **7 years** for compliance
-
-### Accessing Evidence
-
-```bash
-# View evidence for a specific date
-aws s3 ls s3://compliance-evidence-123456789012/raw-scans/inspec/2025/12/07/
-
-# Download scan result
-aws s3 cp s3://compliance-evidence-123456789012/raw-scans/inspec/2025/12/07/scan.json ./
-
-# Query findings for a control
-aws s3 cp s3://compliance-evidence-123456789012/normalized-findings/2025/12/07/findings.ndjson - | \
-  jq -r 'select(.control.id == "CIS-AWS-2.1.4")'
-
-# View compliance snapshot
-aws s3 cp s3://compliance-evidence-123456789012/snapshots/daily/2025/12/snap-2025-12-07-daily.json - | jq .
-```
+| Control Prefix | Service | Config File |
+|---------------|---------|-------------|
+| `os-identity-*` | Keystone | `/etc/keystone/keystone.conf` |
+| `os-compute-*` | Nova | `/etc/nova/nova.conf` |
+| `os-networking-*` | Neutron | `/etc/neutron/neutron.conf` |
+| `os-storage-*` | Cinder | `/etc/cinder/cinder.conf` |
+| `os-image-*` | Glance | `/etc/glance/glance-api.conf` |
+| `os-dashboard-*` | Horizon | `/etc/openstack-dashboard/local_settings.py` |
+| `os-orchestration-*` | Heat | `/etc/heat/heat.conf` |
+| `cis-*` | Linux OS | Various system files |
 
 ---
 
@@ -319,15 +209,13 @@ aws s3 cp s3://compliance-evidence-123456789012/snapshots/daily/2025/12/snap-202
 
 ### Key Performance Indicators (KPIs)
 
-| Metric | Target | Current |
-|--------|--------|---------|
-| **Overall Compliance** | ≥ 90% | 72% |
-| **CRITICAL Compliance** | 100% | 100% ✅ |
-| **HIGH Compliance** | ≥ 95% | 85% |
-| **Mean Time to Detect (MTTD)** | < 1 hour | 30 min ✅ |
-| **Mean Time to Remediate (MTTR)** | < 4 hours | 2 hours ✅ |
-| **False Positive Rate** | < 5% | 2% ✅ |
-| **Auto-Remediation Success Rate** | ≥ 95% | 98% ✅ |
+| Metric | Target | Description |
+|--------|--------|-------------|
+| **Overall Compliance** | ≥ 80% | All controls passing |
+| **CRITICAL Compliance** | 100% | Must be fully compliant |
+| **HIGH Compliance** | ≥ 95% | Priority focus |
+| **Mean Time to Detect (MTTD)** | < 1 hour | Scan frequency |
+| **Mean Time to Remediate (MTTR)** | < 4 hours | For CRITICAL issues |
 
 ### Compliance Score Calculation
 
@@ -351,52 +239,28 @@ weighted_score = (
 
 ---
 
-## Troubleshooting
-
-### Evidence Not Uploading to S3
-
-**Check**:
-1. AWS credentials: `aws sts get-caller-identity`
-2. Bucket permissions: `aws s3 ls s3://evidence-bucket/`
-3. KMS key access: `aws kms describe-key --key-id <key-id>`
-
-### Hash Mismatch
-
-**Cause**: Evidence may be corrupted or tampered
-
-**Fix**:
-1. Re-run scan
-2. Verify S3 object integrity
-3. Check CloudTrail for unauthorized access
-
-### Report Generation Fails
-
-**Check**:
-1. Snapshot exists: `aws s3 ls s3://evidence/snapshots/daily/2025/12/`
-2. Python dependencies: `pip install boto3`
-3. Bucket access: `aws s3 ls s3://evidence/`
-
----
-
 ## Integration with CI/CD
 
 ### GitHub Actions
 
 ```yaml
-- name: Collect Compliance Evidence
+- name: Run OpenStack Compliance Scan
   run: |
     # Run InSpec
-    inspec exec tests/inspec/aws-cis -t aws:// --reporter json:scan.json
+    inspec exec tests/inspec/openstack-cis \
+      -t ssh://root@${{ secrets.CONTROLLER_HOST }} \
+      --reporter json:scan.json \
+      --chef-license accept-silent
 
     # Collect evidence
     python evidence/collectors/evidence_collector.py \
       --inspec-json scan.json \
-      --bucket ${{ secrets.EVIDENCE_BUCKET }} \
+      --evidence-path ./evidence_store \
       --store
 
     # Generate report
     python evidence/reporters/compliance_reporter.py \
-      --bucket ${{ secrets.EVIDENCE_BUCKET }} \
+      --evidence-path ./evidence_store \
       --type daily \
       --format markdown \
       --save
@@ -404,27 +268,43 @@ weighted_score = (
 
 ---
 
+## For Auditors
+
+Key points:
+- All evidence is **timestamped** with ISO 8601 format
+- All evidence includes **SHA-256 hash** for integrity
+- Evidence includes **before/after states** for remediations
+- Scan frequency: **Daily** (configurable to hourly for CRITICAL)
+- Retention: **7 years** for compliance
+
+### Accessing Evidence
+
+```bash
+# View evidence for a specific date
+ls evidence_store/raw-scans/inspec/2025/12/29/
+
+# View normalized findings
+cat evidence_store/normalized-findings/2025/12/29/findings-*.ndjson | jq .
+
+# Query findings for a control
+cat evidence_store/normalized-findings/2025/12/29/*.ndjson | \
+  jq -r 'select(.control.id == "os-identity-1.1")'
+
+# View compliance snapshot
+cat evidence_store/snapshots/daily/2025/12/snap-20251229-daily.json | jq .
+```
+
+---
+
 ## References
 
 - [Evidence Schema Documentation](EVIDENCE-SCHEMA.md)
-- [Audit Handbook](../docs/AUDIT-HANDBOOK.md)
-- [CIS AWS Foundations Benchmark](https://www.cisecurity.org/benchmark/amazon_web_services)
+- [CIS OpenStack Benchmark](https://www.cisecurity.org/benchmark/openstack)
 - [InSpec Documentation](https://docs.chef.io/inspec/)
+- [OpenStack Security Guide](https://docs.openstack.org/security-guide/)
 
 ---
 
-## Support
-
-**Questions?**
-- Slack: #cloud-security
-- Email: cloud-security@company.com
-
-**Issues?**
-- GitHub: Open an issue
-- On-call: security-oncall@company.com
-
----
-
-**Last Updated**: 2025-12-07
-**Version**: 1.0
+**Last Updated**: 2025-12-29
+**Version**: 2.0 (OpenStack)
 **Owner**: Cloud Security Team

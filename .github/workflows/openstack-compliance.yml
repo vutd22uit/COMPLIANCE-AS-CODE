@@ -1,0 +1,266 @@
+name: OpenStack Compliance Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      target_host:
+        description: 'Target OpenStack host to scan'
+        required: false
+        default: 'controller'
+
+env:
+  INSPEC_VERSION: '5.22'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ============================================
+  # Static Analysis (IaC)
+  # ============================================
+  static-analysis:
+    name: Static Analysis (Heat Templates)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install checkov conftest
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa && sudo mv opa /usr/local/bin/
+
+      - name: Run Checkov on Heat templates
+        run: |
+          checkov -d examples/heat/ \
+            --framework cloudformation \
+            --output json \
+            --output-file-path results/ \
+            --soft-fail
+        continue-on-error: true
+
+      - name: Run OPA Policy Check
+        run: |
+          for template in examples/heat/*.yaml; do
+            echo "Checking $template..."
+            conftest test "$template" -p policies/rego/ --output json || true
+          done
+
+      - name: Upload static analysis results
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-results
+          path: results/
+          retention-days: 30
+
+  # ============================================
+  # InSpec Profile Validation
+  # ============================================
+  validate-profiles:
+    name: Validate InSpec Profiles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install InSpec
+        run: |
+          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec -v ${{ env.INSPEC_VERSION }}
+
+      - name: Validate OpenStack CIS Profile
+        run: |
+          inspec check tests/inspec/openstack-cis --chef-license=accept-silent
+
+      - name: Validate Linux CIS Profile
+        run: |
+          inspec check tests/inspec/linux-cis --chef-license=accept-silent
+        continue-on-error: true
+
+      - name: Generate profile documentation
+        run: |
+          inspec json tests/inspec/openstack-cis --chef-license=accept-silent > openstack-profile.json
+          echo "## OpenStack CIS Profile" >> $GITHUB_STEP_SUMMARY
+          echo "Controls: $(jq '.controls | length' openstack-profile.json)" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Runtime Compliance Scan (OpenStack)
+  # ============================================
+  openstack-scan:
+    name: OpenStack Compliance Scan
+    runs-on: ubuntu-latest
+    needs: validate-profiles
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install InSpec
+        run: |
+          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec -v ${{ env.INSPEC_VERSION }}
+
+      - name: Setup SSH Key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.OPENSTACK_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.OPENSTACK_CONTROLLER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Run OpenStack CIS Scan
+        env:
+          OPENSTACK_HOST: ${{ secrets.OPENSTACK_CONTROLLER_HOST }}
+          OPENSTACK_USER: ${{ secrets.OPENSTACK_SSH_USER }}
+        run: |
+          inspec exec tests/inspec/openstack-cis \
+            -t ssh://${OPENSTACK_USER}@${OPENSTACK_HOST} \
+            --chef-license=accept-silent \
+            --reporter cli json:results/openstack-cis-results.json html:results/openstack-cis-report.html \
+            || true
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: openstack-scan-results
+          path: results/
+          retention-days: 90
+
+      - name: Generate compliance summary
+        run: |
+          if [ -f results/openstack-cis-results.json ]; then
+            PASSED=$(jq '[.profiles[].controls[].results[] | select(.status == "passed")] | length' results/openstack-cis-results.json)
+            FAILED=$(jq '[.profiles[].controls[].results[] | select(.status == "failed")] | length' results/openstack-cis-results.json)
+            TOTAL=$((PASSED + FAILED))
+            SCORE=$((PASSED * 100 / TOTAL))
+            
+            echo "## 📊 OpenStack Compliance Summary" >> $GITHUB_STEP_SUMMARY
+            echo "- **Passed**: $PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- **Failed**: $FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "- **Score**: $SCORE%" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================
+  # Linux CIS Scan (Compute Nodes)
+  # ============================================
+  linux-scan:
+    name: Linux CIS Scan
+    runs-on: ubuntu-latest
+    needs: validate-profiles
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        node: [compute-1, compute-2]
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install InSpec
+        run: |
+          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec -v ${{ env.INSPEC_VERSION }}
+
+      - name: Setup SSH Key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.OPENSTACK_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Run Linux CIS Scan on ${{ matrix.node }}
+        env:
+          NODE_HOST: ${{ secrets[format('OPENSTACK_{0}_HOST', matrix.node)] }}
+          SSH_USER: ${{ secrets.OPENSTACK_SSH_USER }}
+        run: |
+          inspec exec tests/inspec/linux-cis \
+            -t ssh://${SSH_USER}@${NODE_HOST} \
+            --chef-license=accept-silent \
+            --reporter json:results/linux-cis-${{ matrix.node }}.json \
+            || true
+        continue-on-error: true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-scan-${{ matrix.node }}
+          path: results/
+          retention-days: 90
+
+  # ============================================
+  # Compliance Report Generation
+  # ============================================
+  generate-report:
+    name: Generate Compliance Report
+    runs-on: ubuntu-latest
+    needs: [openstack-scan, linux-scan]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results/
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install jinja2 pandas
+
+      - name: Generate consolidated report
+        run: |
+          python ci/scripts/generate-compliance-report.py \
+            --input-dir all-results/ \
+            --output-dir reports/
+        continue-on-error: true
+
+      - name: Upload final report
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-report
+          path: reports/
+          retention-days: 365
+
+  # ============================================
+  # Notify on Failure
+  # ============================================
+  notify:
+    name: Notify on Critical Failures
+    runs-on: ubuntu-latest
+    needs: [openstack-scan]
+    if: failure()
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "⚠️ OpenStack Compliance Scan Failed!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*OpenStack Compliance Alert*\nScan failed or detected critical violations.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

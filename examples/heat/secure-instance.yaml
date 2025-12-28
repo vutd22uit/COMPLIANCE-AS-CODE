@@ -1,0 +1,136 @@
+heat_template_version: 2021-04-16
+
+description: >
+  CIS-compliant OpenStack Heat template example.
+  This template creates a secure VM instance with proper security groups.
+
+parameters:
+  instance_name:
+    type: string
+    default: secure-instance
+    description: Name of the instance
+
+  image:
+    type: string
+    description: Image ID or name to use for the instance
+
+  flavor:
+    type: string
+    default: m1.small
+    description: Flavor to use for the instance
+
+  key_name:
+    type: string
+    description: Name of an existing key pair
+
+  network:
+    type: string
+    description: Network ID or name to attach to
+
+  allowed_ssh_cidr:
+    type: string
+    default: 10.0.0.0/8
+    description: CIDR range allowed for SSH access (NOT 0.0.0.0/0)
+
+resources:
+  # Security Group with restricted access
+  secure_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: cis-compliant-sg
+      description: CIS Benchmark compliant security group
+      rules:
+        # Allow SSH only from specific CIDR (NOT 0.0.0.0/0)
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+          remote_ip_prefix: { get_param: allowed_ssh_cidr }
+        # Allow HTTPS
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 443
+          port_range_max: 443
+          remote_ip_prefix: 0.0.0.0/0
+        # Deny all other ingress by default (implicit)
+        # Allow all egress
+        - direction: egress
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+
+  # Port with security group attached
+  secure_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: network }
+      security_groups:
+        - { get_resource: secure_security_group }
+
+  # Server instance
+  secure_server:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: instance_name }
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: secure_port }
+      metadata:
+        cis_compliant: "true"
+        created_by: "compliance-as-code"
+      user_data_format: RAW
+      user_data: |
+        #!/bin/bash
+        # CIS Linux Hardening Script
+        
+        # 1.1.1.1 Disable cramfs
+        echo "install cramfs /bin/true" >> /etc/modprobe.d/CIS.conf
+        
+        # 1.4.1 Ensure AIDE is installed
+        apt-get install -y aide aide-common || yum install -y aide
+        
+        # 5.2.1 Ensure SSH Protocol 2 is used
+        sed -i 's/^#Protocol.*/Protocol 2/' /etc/ssh/sshd_config
+        
+        # 5.2.2 Ensure SSH LogLevel is set to INFO
+        sed -i 's/^#LogLevel.*/LogLevel INFO/' /etc/ssh/sshd_config
+        
+        # 5.2.3 Disable SSH root login
+        sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+        
+        # Restart SSH
+        systemctl restart sshd
+
+  # Encrypted Volume (CIS 2.1.1)
+  encrypted_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: 10
+      name: encrypted-data-volume
+      description: CIS-compliant encrypted volume
+      # Note: Volume encryption should be configured at Cinder backend level
+      metadata:
+        encrypted: "true"
+        cis_compliant: "true"
+
+  # Attach volume to server
+  volume_attachment:
+    type: OS::Cinder::VolumeAttachment
+    properties:
+      volume_id: { get_resource: encrypted_volume }
+      instance_uuid: { get_resource: secure_server }
+      mountpoint: /dev/vdb
+
+outputs:
+  instance_ip:
+    description: IP address of the instance
+    value: { get_attr: [secure_port, fixed_ips, 0, ip_address] }
+
+  security_group_id:
+    description: ID of the security group
+    value: { get_resource: secure_security_group }
+
+  volume_id:
+    description: ID of the attached volume
+    value: { get_resource: encrypted_volume }

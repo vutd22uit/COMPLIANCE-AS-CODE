@@ -64,10 +64,10 @@ async def create_scan(
     current_user: User = Depends(get_current_security_engineer),
     db: Session = Depends(get_db)
 ):
-    """Create and trigger a new scan"""
+    """Kích hoạt quét lỗi tự động (chạy ngầm)"""
     require_permission(current_user.role.value, Permission.SCAN_CREATE)
     
-    # TODO: Implement actual scan triggering with Celery
+    # 1. Lưu bản ghi vào DB
     scan = ScanJob(
         organization_id=current_user.organization_id,
         environment_id=scan_data.environment_id,
@@ -79,6 +79,10 @@ async def create_scan(
     db.add(scan)
     db.commit()
     db.refresh(scan)
+    
+    # 2. TỰ ĐỘNG HOÁ: Đẩy vào Celery Worker
+    from backend.workers.tasks import run_compliance_scan
+    run_compliance_scan.delay(scan_data.scan_type, scan_data.environment_id)
     
     return scan
 

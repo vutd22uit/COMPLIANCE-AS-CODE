@@ -99,7 +99,7 @@ services:
     build:
       context: ./exporters
       dockerfile: Dockerfile
-    container_name: compliance_exporter
+    command: [ "--port", "9100", "--results-dir", "/app/scan-results", "--evidence-dir", "/app/evidence" ]
     restart: unless-stopped
     environment:
       - RESULTS_DIR=/app/scan-results

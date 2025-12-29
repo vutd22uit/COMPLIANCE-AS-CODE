@@ -18,14 +18,23 @@ DATABASE_URL = os.getenv(
 )
 
 # Create engine with connection pooling
-engine = create_engine(
-    DATABASE_URL,
-    poolclass=QueuePool,
-    pool_size=20,
-    max_overflow=40,
-    pool_pre_ping=True,  # Verify connections before using
-    echo=os.getenv("SQL_ECHO", "false").lower() == "true"
-)
+is_sqlite = DATABASE_URL.startswith("sqlite")
+
+engine_args = {
+    "echo": os.getenv("SQL_ECHO", "false").lower() == "true"
+}
+
+if is_sqlite:
+    engine_args["connect_args"] = {"check_same_thread": False}
+else:
+    engine_args.update({
+        "poolclass": QueuePool,
+        "pool_size": 20,
+        "max_overflow": 40,
+        "pool_pre_ping": True,
+    })
+
+engine = create_engine(DATABASE_URL, **engine_args)
 
 # Session factory
 SessionLocal = sessionmaker(
@@ -84,9 +93,10 @@ def get_db_context() -> Generator[Session, None, None]:
 # Health check function
 def check_database_health() -> bool:
     """Check if database connection is healthy"""
+    from sqlalchemy import text
     try:
         with get_db_context() as db:
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
         return True
     except Exception:
         return False

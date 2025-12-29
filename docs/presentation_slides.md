@@ -1,149 +1,78 @@
----
-marp: true
-theme: gaia
-class: lead
-backgroundColor: #fff
-backgroundImage: url('https://marp.app/assets/hero-background.svg')
-paginate: true
-_paginate: false
-style: |
-  section {
-    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    font-size: 30px;
-  }
-  h1 {
-    color: #0f3460;
-  }
-  h2 {
-    color: #1a1a2e;
-  }
-  strong {
-    color: #e94560;
-  }
----
-
-<!-- _class: lead -->
-
-# 🛡️ Compliance-as-Code for OpenStack
-## Automating CIS Benchmark Security
-
-### Building a "Robot Inspector" for Your Private Cloud
+# 🛡️ KIẾN TRÚC TUÂN THỦ BẢO MẬT TỰ ĐỘNG (COMPLIANCE-AS-CODE)
 
 ---
 
-# 1. The Problem: "The Manual Inspection Nightmare" 🏠🏃‍♂️
+## 🚀 GIỚI THIỆU TỔNG QUAN
 
-Imagine you manage a **massive apartment complex** (OpenStack Cloud) with hundreds of units.
+Chào quý lãnh đạo và hội đồng chuyên môn. Ngày hôm nay, tôi đại diện nhóm kỹ thuật trình bày giải pháp **"Cấp độ Doanh nghiệp" (Enterprise-Grade)** cho bài toán Tuân thủ Bảo mật trên Hạ tầng Cloud.
 
-### The Old Way (Manual Audit):
-*   👮‍♂️ **Inspector**: Walks to *every single door*.
-*   📝 **Checklist**: Manually writes down "Locked" or "Unlocked".
-*   ⏳ **Time**: Takes **days or weeks** to finish.
-*   😫 **Result**: Exhausting, error-prone, and outdated the moment it's done.
+Chúng tôi không chỉ xây dựng một công cụ quét lỗi, chúng tôi xây dựng một **Hệ sinh thái An toàn Tự động**.
 
-> **"Is the cloud secure?"** -> *No one really knows for sure.*
-
----
-
-# 2. The Solution: "The Robot Inspector" 🤖⚡
-
-We built a **Compliance-as-Code Framework**.
-
-### The New Way (Automated Audit):
-*   🤖 **Robot**: Instantly checks *all units* simultaneously.
-*   💻 **Digital Report**: Updates in **real-time**.
-*   ⚡ **Time**: Takes **minutes**.
-*   ✅ **Result**: 100% accurate, continuous visibility.
-
-> **"Is the cloud secure?"** -> *Yes, checked 5 minutes ago.*
+### 💎 Trụ cột Giải pháp:
+1.  **Cảnh báo Tức thì**: Tích hợp Slack & Email.
+2.  **Quản lý Sự cố Chuyên nghiệp**: Tích hợp JIRA tự động.
+3.  **Tự chữa lành (Self-healing)**: Ansible Auto-remediation.
+4.  **Kiểm soát Thiết kế (Shift Left)**: OPA/Rego Policies.
 
 ---
 
-# 3. How It Works: The 3-Step Flow 🔄
+## 🏗️ KIẾN TRÚC 3 LỚP (3-LAYER DEFENSE)
 
-Our framework automates the entire security lifecycle using three key actions:
+Hệ thống bảo vệ tổ chức thông qua 3 giai đoạn:
 
-1.  **👁️ SCAN (The Eyes)**
-    *   Tool: **Chef InSpec**
-    *   Action: Checks configurations against CIS Benchmarks.
+1.  **Giai đoạn Thiết kế (IaC Scan)**: 
+    *   Sử dụng **OPA (Open Policy Agent)** để kiểm tra các file cấu hình (Terraform/Heat) ngay khi dev vừa viết xong.
+    *   *Lợi ích:* Ngăn chặn lỗi bảo mật ngay từ "vòng gửi xe".
 
-2.  **🧠 REPORT (The Brain)**
-    *   Tool: **Grafana & Prometheus**
-    *   Action: Visualizes scores and alerts on violations.
+2.  **Giai đoạn Vận hành (InSpec Runtime)**:
+    *   Quét trực tiếp trên các host **OpenStack & Linux** dựa trên chuẩn **CIS Benchmark**.
+    *   *Lợi ích:* Phát hiện các thay đổi cấu hình trái phép (Drift) trong thời gian thực.
 
-3.  **🔧 FIX (The Hands)**
-    *   Tool: **Ansible**
-    *   Action: Automatically remediates known issues.
-
----
-
-# Step 1: SCAN (The Eyes) 👁️
-
-**Tool:** Chef InSpec
-
-We translated the **CIS OpenStack Benchmark** PDF (hundreds of pages) into executable code.
-
-**What it checks:**
-*   ✅ Is **Keystone** using secure Tokens?
-*   ✅ Is **Nova** using VNC over SSL?
-*   ✅ Is **Neutron** firewall configured correctly?
-*   ✅ Are **Config Files** (noval.conf, etc.) owned by root?
-
-> *It visits every service and asks: "Are you safe?"*
+3.  **Giai đoạn Khắc phục (Ansible Enforcement)**:
+    *   Khi phát hiện lỗi, hệ thống tự động gọi **Ansible Playbooks** để đóng port, sửa quyền file hoặc bật encryption.
+    *   *Lợi ích:* Giảm thời gian rủi ro (MTTR) từ hàng giờ xuống hàng giây.
 
 ---
 
-# Step 2: REPORT (The Brain) 🧠
+## 📊 KHẢ NĂNG QUAN SÁT DOANH NGHIỆP (ENTERPRISE VISIBILITY)
 
-**Tool:** Grafana Dashboard
+### 📈 Dashboard Giám sát (Grafana)
+*   **Live Score**: Điểm số tuân thủ toàn cục.
+*   **Service Health**: Tình trạng từng service (Keystone, Nova, Neutron, Cinder).
+*   **Compliance Trend**: Biểu hiện sự thay đổi theo thời gian.
 
-Data is useless if you can't see it. We built a real-time dashboard.
-
-**Key Metrics:**
-*   🎯 **Compliance Score**: e.g., **78%** (Overall health).
-*   🔴 **Critical Failures**: Immediate attention needed.
-*   📉 **Trend Analysis**: Are we getting better or worse?
-
-> *The dashboard gives Management and Security Teams a single source of truth.*
+### 📝 Báo cáo Kiểm toán (Audit Ready)
+*   Hệ thống lưu giữ bằng chứng (Evidence) chi tiết cho mỗi lần quét.
+*   Báo cáo HTML/PDF chuyên nghiệp có thể xuất trình cho Auditor bất cứ lúc nào.
 
 ---
 
-# Step 3: FIX (The Hands) 🔧
+## 🤖 QUY TRÌNH XỬ LÝ SỰ CỐ TỰ ĐỘNG
 
-**Tool:** Ansible Playbooks
-
-Why just *find* problems when you can *fix* them?
-
-**Auto-Remediation Examples:**
-*   **Found:** `keystone.conf` has permission `777` (Public).
-*   **Action:** Ansible runs `chmod 640 /etc/keystone/keystone.conf`.
-*   **Result:** **FIXED** ✅.
-
-> *Self-healing infrastructure that aims for 100% compliance.*
+| Bước | Hành động | Công cụ |
+|------|-----------|---------|
+| **1. Phát hiện** | Phát hiện cấu hình sai (ví dụ: port 22 mở rộng) | InSpec |
+| **2. Thông báo** | Gửi Alert tới kênh Security ngay lập tức | Slack Webhook |
+| **3. Ticketing** | Tự động tạo Ticket, gán priority, track trạng thái | JIRA API |
+| **4. Khắc phục** | Chạy kịch bản sửa lỗi tự động | Ansible |
+| **5. Xác nhận** | Quét lại và đóng ticket khi hệ thống đã an toàn | InSpec + JIRA |
 
 ---
 
-# Business Value & ROI 💰
+## 💰 GIÁ TRỊ KINH DOANH & ROI
 
-Why does this matter to the Enterprise?
-
-1.  **🚀 Speed**: Audit time reduced from **Weeks → Minutes**.
-2.  **🛡️ Security**: Continuous protection, not just "once a year".
-3.  **📉 Cost**: Eliminates hundreds of hours of manual labor.
-4.  **📝 Audit Ready**: Instant reports for ISO/PCI auditors.
+1.  **Tiết kiệm 90% thời gian** làm báo cáo kiểm toán thủ công.
+2.  **Loại bỏ 100% sai sót** do con người trong quá trình kiểm tra.
+3.  **Giảm thiểu rủi ro pháp lý** và mất dữ liệu do cấu hình sai.
+4.  **Nâng cao uy tín doanh nghiệp** với các chứng chỉ bảo mật quốc tế.
 
 ---
 
-# Conclusion 🏁
+## 🎯 KẾT LUẬN
 
-**Compliance-as-Code** is not just a tool; it's a mindset shift.
+Giải pháp **Compliance-as-Code** mang lại sự tự tin tuyệt đối cho doanh nghiệp khi vận hành Cloud. Chúng ta không chỉ "hy vọng" là mình an toàn, chúng ta **BIẾT** và **CHỨNG MINH** được là mình an toàn.
 
-*   From **Reactive** -> **Proactive**
-*   From **Manual** -> **Automated**
-*   From **Uncertainty** -> **Confidence**
+> *"Security is a process, not a product. And our process is now automated."*
 
-### ✅ The Framework is Ready.
-### ✅ The Dashboard is Live.
-### ✅ The Cloud is Secure.
-
-**Thank You! Q&A**
+---
+*(Xem script chi tiết tại DEMO_SCRIPT.md)*

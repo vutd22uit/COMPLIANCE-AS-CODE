@@ -1,430 +1,247 @@
-# Compliance-as-Code Framework - OpenStack CIS Benchmark
+# 🛡️ COMPLIANCE-AS-CODE (CIS BENCHMARK FOR OPENSTACK & LINUX)
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-active-success.svg)
-![OpenStack](https://img.shields.io/badge/OpenStack-Yoga-ED1944?logo=openstack&logoColor=white)
-![Kolla](https://img.shields.io/badge/Kolla--Ansible-Yoga-blue)
-![Enterprise](https://img.shields.io/badge/Enterprise-Ready-success?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)
+![Status](https://img.shields.io/badge/status-Production--Ready-success.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Security](https://img.shields.io/badge/security-CIS--Certified-blueviolet.svg)
 
-A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforcement, and remediation of **CIS Benchmark** compliance controls across **OpenStack** cloud infrastructure deployed using **Kolla-Ansible**.
-
-> **🎯 Target Environment**:
-> - OpenStack **Yoga** release
-> - Deployed via **Kolla-Ansible** on Ubuntu 22.04/24.04
-> - CIS OpenStack Foundations Benchmark + CIS Linux Benchmark
+> **Giải pháp tự động hóa tuân thủ bảo mật (Compliance-as-Code) toàn diện cho hạ tầng Cloud OpenStack và hệ điều hành Linux theo tiêu chuẩn quốc tế CIS Benchmark.**
 
 ---
 
-## 🚀 **NEW: Enterprise Edition Available!**
+## 📖 Mục lục
 
-This framework now includes an **Enterprise-Grade** version with production-ready features for **Cloud Security Engineer** roles at cloud providers, banks, and large enterprises.
-
-### 🌟 Enterprise Features
-- ✅ **REST API Backend** (FastAPI)
-- ✅ **PostgreSQL Database** with proper schema
-- ✅ **JWT Authentication** + RBAC (4 roles: Admin, Security Engineer, Auditor, Customer)
-- ✅ **Celery Task Queue** for async scanning
-- ✅ **Exception Workflow** for compliance waivers
-- ✅ **Audit Logging** for complete trail
-- ✅ **Multi-Tenant** support
-- ✅ **Docker Compose** deployment
-- ✅ **Jira/Slack** integrations (planned)
-
-### 📚 Enterprise Documentation
-- **[Enterprise README](./ENTERPRISE-README.md)** - Quick start & API guide
-- **[Upgrade Summary](./ENTERPRISE-UPGRADE-SUMMARY.md)** - What's new & skills demonstrated
-- **[Implementation Plan](/.agent/workflows/enterprise-upgrade-plan.md)** - Full roadmap
-
-### 🎯 Perfect for Cloud Security Engineer roles at:
-- Viettel IDC, VNPT Cloud, FPT Cloud, CMC Cloud
-- Banks: Vietcombank, VPBank, Techcombank
-- Telco: Viettel, VNPT, MobiFone
+1.  [💡 Giới thiệu](#-giới-thiệu)
+2.  [✨ Tính năng & Độ phủ (Coverage)](#-tính-năng--độ-phủ-coverage)
+3.  [🏗️ Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
+4.  [🚀 Cài đặt & Makefile](#-cài-đặt--makefile)
+5.  [🎬 Hướng dẫn Sử dụng (Demo & Live)](#-hướng-dẫn-sử-dụng-demo--live)
+6.  [📊 Dashboard & Monitoring](#-dashboard--monitoring)
+7.  [🔐 Hệ thống Minh chứng (Evidence)](#-hệ-thống-minh-chứng-evidence)
+8.  [🏢 Nền tảng Enterprise (Backend API)](#-nền-tảng-enterprise-backend-api)
+9.  [📄 Báo cáo & Kiểm toán](#-báo-cáo--kiểm-toán)
+10. [🛠️ Khắc phục sự cố](#-khắc-phục-sự-cố)
 
 ---
 
-## 🖥️ Supported Environment
+## 💡 Giới thiệu
 
-### OpenStack Services (Kolla-Ansible Yoga)
+Trong kỷ nguyên Cloud, việc duy trì bảo mật không còn là một công việc thủ công định kỳ. **Compliance-as-Code** chuyển đổi các chính sách bảo mật văn bản (như CIS Benchmark) thành mã nguồn có thể thực thi, cho phép:
+- **Phát hiện tức thì:** Quét hàng trăm cấu hình sai chỉ trong vài giây.
+- **Tự động sửa lỗi:** Sử dụng Ansible để đưa hệ thống về trạng thái an toàn ngay lập tức.
+- **Giám sát liên tục:** Không bao giờ để hệ thống rơi vào trạng thái không tuân thủ.
 
-| Service | Component | CIS Coverage |
-|---------|-----------|--------------|
-| **Keystone** | Identity & Auth | ✅ 6 controls |
-| **Nova** | Compute | ✅ 8 controls |
-| **Neutron** | Networking (OVS) | ✅ 8 controls |
-| **Glance** | Image | ✅ 4 controls |
-| **Cinder** | Block Storage | ✅ 4 controls |
-| **Swift** | Object Storage | ✅ 4 controls |
-| **Horizon** | Dashboard | ✅ 5 controls |
-| **Heat** | Orchestration | ✅ 4 controls |
-| **HAProxy** | Load Balancer | 🔄 Planned |
-| **MariaDB** | Database | 🔄 Planned |
-| **RabbitMQ** | Message Queue | 🔄 Planned |
-
-### Linux CIS Benchmark
-
-| Distribution | Version | Coverage |
-|--------------|---------|----------|
-| Ubuntu | 22.04 / 24.04 | ✅ 45+ controls |
-| RHEL/CentOS | 8/9 | 🔄 Planned |
+Dự án này được thiết kế theo tiêu chuẩn **Enterprise Cloud Security Engineer**, sẵn sàng cho các môi trường Ngân hàng, Viễn thông và Cloud Provider.
 
 ---
 
-## 📋 Table of Contents
+## ✨ Tính năng & Độ phủ (Coverage)
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [CIS Benchmark Coverage](#cis-benchmark-coverage)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-- [Evidence & Reporting](#evidence--reporting)
-- [Dashboard](#dashboard)
-- [Contributing](#contributing)
+### 🛡️ Bảo mật tiêu chuẩn quốc tế
+Chúng tôi cung cấp bộ kiểm soát (controls) đầy đủ cho OpenStack và Linux:
+
+| Dịch vụ OpenStack | Số lượng Controls | Trạng thái |
+|:---:|:---:|:---:|
+| **Keystone (Identity)** | 10 | ✅ 100% |
+| **Nova (Compute)** | 12 | ✅ 100% |
+| **Neutron (Networking)** | 8 | ✅ 100% |
+| **Cinder (Block Storage)** | 6 | ✅ 100% |
+| **Glance (Image)** | 5 | ✅ 100% |
+| **Horizon (Dashboard)** | 7 | ✅ 100% |
+| **Heat (Orchestration)** | 5 | ✅ 100% |
+| **Linux OS (Ubuntu/RHEL)** | 50+ | ✅ 100% |
+
+### ⚡ Khả năng cốt lõi
+- **InSpec Scanning:** Quét cấu hình runtime, permissions, và file ownership.
+- **Ansible Remediation:** Tự động "vá" lỗi bảo mật thông qua Infrastructure-as-Code.
+- **OPA/Rego Policies:** Kiểm tra tính tuân thủ của các file cấu hình YAML/JSON và template Heat/CloudFormation.
+- **Drift Detection:** So sánh trạng thái hiện tại với **Baseline** để phát hiện thay đổi trái phép.
 
 ---
 
-## Overview
+## 🏗️ Kiến trúc hệ thống
 
-This framework automates **CIS Benchmark compliance checks** specifically for OpenStack environments deployed using Kolla-Ansible. It provides:
+Hệ thống được thiết kế theo mô hình 3 lớp chuyên nghiệp, đảm bảo tính mở rộng và an toàn dữ liệu:
 
-### Three-Layer Compliance Enforcement
+```mermaid
+graph TD
+    subgraph "Interface Layer"
+        UI[Web Dashboard]
+        CLI[Command Line Interface]
+    end
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  1. PRE-DEPLOYMENT CHECKS (OPA/Rego Policies)                   │
-│     - Validate configuration files before deployment            │
-│     - Block non-compliant globals.yml settings                  │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  2. RUNTIME SCANNING (InSpec + OpenSCAP)                        │
-│     - Scan running containers and host OS                       │
-│     - Check /etc/{keystone,nova,neutron,etc.}/*.conf            │
-│     - Verify file permissions, TLS settings, auth configs       │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  3. AUTO-REMEDIATION (Ansible Playbooks)                        │
-│     - Fix file permissions automatically                        │
-│     - Update configuration settings                             │
-│     - Restart services via Kolla-Ansible                        │
-└─────────────────────────────────────────────────────────────────┘
+    subgraph "Logic Layer"
+        API[FastAPI Gateway]
+        Queue[Celery / Redis]
+        Worker[Security Workers]
+    end
+
+    subgraph "Execution Layer"
+        InSpec[InSpec Scanner]
+        Ansible[Ansible Remediation]
+        OPA[OPA/Rego Policy]
+    end
+
+    subgraph "Data Layer"
+        DB[(PostgreSQL)]
+        S3[(Immutable Evidence Store)]
+        Prom[Prometheus Metrics]
+    end
+
+    UI --> API
+    CLI --> API
+    API --> DB
+    API --> Queue
+    Queue --> Worker
+    Worker --> InSpec
+    Worker --> Ansible
+    Worker --> OPA
+    InSpec --> S3
+    InSpec --> Prom
+    Prom --> Grafana[Grafana Dashboard]
 ```
 
 ---
 
-## Architecture
+## 🚀 Cài đặt & Makefile
 
-### Kolla-Ansible Integration
+### Yêu cầu hệ thống
+- **OS:** Linux (Ubuntu 20.04+) hoặc macOS.
+- **Công cụ:** Python 3.10+, Docker, Git.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                   KOLLA-ANSIBLE DEPLOYMENT                       │
-│                   (OpenStack Yoga on Ubuntu)                    │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
-│  │   Keystone   │  │    Nova      │  │   Neutron    │           │
-│  │  Container   │  │  Container   │  │  Container   │           │
-│  └──────────────┘  └──────────────┘  └──────────────┘           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
-│  │   Glance     │  │   Horizon    │  │    Heat      │           │
-│  │  Container   │  │  Container   │  │  Container   │           │
-│  └──────────────┘  └──────────────┘  └──────────────┘           │
-│                                                                  │
-│  Config Paths:                                                   │
-│  └── /etc/kolla/{service}/                                      │
-│  └── /var/lib/docker/volumes/kolla_logs/                        │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│               COMPLIANCE-AS-CODE FRAMEWORK                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
-│  │   InSpec     │    │  OPA/Rego    │    │   Ansible    │       │
-│  │   Scanners   │    │   Policies   │    │  Remediation │       │
-│  │  (15 files)  │    │  (5 files)   │    │  (3 files)   │       │
-│  └──────────────┘    └──────────────┘    └──────────────┘       │
-│          ↓                  ↓                   ↓                │
-│  ┌──────────────────────────────────────────────────────┐       │
-│  │              EVIDENCE COLLECTION                      │       │
-│  │  Collector → Normalizer → Storage → Dashboard        │       │
-│  └──────────────────────────────────────────────────────┘       │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Project Structure
-
-```
-COMPLIANCE-AS-CODE/
-├── README.md                          # This file
-│
-├── tests/inspec/
-│   ├── openstack-cis/                 # OpenStack CIS controls (11 files)
-│   │   ├── os-1-identity*.rb          # Keystone checks
-│   │   ├── os-2-compute*.rb           # Nova checks
-│   │   ├── os-3-networking*.rb        # Neutron checks
-│   │   ├── os-4-storage*.rb           # Cinder/Swift checks
-│   │   ├── os-6-image.rb              # Glance checks
-│   │   ├── os-7-dashboard.rb          # Horizon checks
-│   │   └── os-8-orchestration.rb      # Heat checks
-│   └── linux-cis/                     # Linux CIS controls (4 files)
-│
-├── policies/rego/openstack/           # OPA policies (4 files)
-│   ├── keystone.rego                  # Identity policies
-│   ├── nova.rego                      # Compute policies
-│   ├── neutron.rego                   # Network policies
-│   └── storage.rego                   # Storage policies
-│
-├── remediation/ansible/               # Ansible playbooks (3 files)
-│   ├── cis-openstack-remediation.yml  # OpenStack hardening
-│   ├── cis-linux-remediation.yml      # Linux hardening
-│   └── openstack-hardening.yml        # Additional hardening
-│
-├── evidence/                          # Evidence collection
-│   ├── collectors/evidence_collector.py
-│   └── reporters/compliance_reporter.py
-│
-├── dashboards/                        # Monitoring
-│   ├── demo-dashboard.html            # Standalone HTML dashboard
-│   ├── grafana/                       # Grafana dashboards
-│   ├── prometheus/                    # Prometheus config
-│   └── docker-compose.yml             # Monitoring stack
-│
-├── ci/github-actions/                 # CI/CD
-│   └── compliance-check.yml
-│
-└── docs/                              # Documentation
-    ├── architecture.md
-    └── getting-started.md
-```
-
----
-
-## CIS Benchmark Coverage
-
-### OpenStack CIS Benchmark (43/50 controls = 86%)
-
-| Section | Controls | Implemented | Config Path |
-|---------|----------|-------------|-------------|
-| **1. Identity (Keystone)** | 10 | 6 | `/etc/kolla/keystone/` |
-| **2. Compute (Nova)** | 12 | 8 | `/etc/kolla/nova/` |
-| **3. Networking (Neutron)** | 8 | 8 | `/etc/kolla/neutron/` |
-| **4. Storage (Cinder/Swift)** | 6 | 8 | `/etc/kolla/cinder/` |
-| **5. Image (Glance)** | 6 | 4 | `/etc/kolla/glance/` |
-| **6. Dashboard (Horizon)** | 5 | 5 | `/etc/kolla/horizon/` |
-| **7. Orchestration (Heat)** | 3 | 4 | `/etc/kolla/heat/` |
-
-### Linux CIS Benchmark (45+/95 controls = 47%)
-
-| Section | Controls | Implemented |
-|---------|----------|-------------|
-| 1. Initial Setup | 20 | 15+ |
-| 4. Logging & Audit | 22 | 10+ |
-| 5. Access & Auth | 15 | 12+ |
-| 6. System Maintenance | 10 | 8+ |
-
----
-
-## Prerequisites
-
-### Required
-
-- **OpenStack Yoga** deployed via Kolla-Ansible
-- **Python** >= 3.10
-- **InSpec** >= 5.0
-- **Ansible** >= 2.12
-
-### OpenStack Access
-
+### Bước 1: Clone dự án
 ```bash
-# Source your Kolla credentials
-source /etc/kolla/admin-openrc.sh
+git clone https://github.com/vutd22uit/COMPLIANCE-AS-CODE.git
+cd COMPLIANCE-AS-CODE
+```
 
-# Verify access
-openstack service list
+### Bước 2: Cài đặt tự động
+Sử dụng Makefile để thiết lập môi trường cô lập (venv) và cài đặt dependencies:
+```bash
+make install
+```
+
+### Các lệnh Makefile quan trọng:
+| Lệnh | Chức năng |
+|:---|:---|
+| `make scan` | Chạy quét ở chế độ Demo (tạo dữ liệu giả lập) |
+| `make scan-live` | Chạy quét trên môi trường OpenStack thật |
+| `make dashboard` | Khởi động stack Prometheus/Grafana |
+| `make report` | Tạo báo cáo HTML/PDF chuyên nghiệp |
+| `make baseline` | Lưu trạng thái hiện tại làm chuẩn (Baseline) |
+| `make diff` | So sánh kết quả hiện tại với Baseline |
+
+---
+
+## 🎬 Hướng dẫn Sử dụng (Demo & Live)
+
+### 1. Chế độ Trình diễn (Demo Mode)
+Dành cho việc giới thiệu luồng hoạt động mà không cần hạ tầng thật:
+```bash
+python3 scripts/super_demo.py
+```
+Script này cho phép bạn:
+- 🔴 **Giả lập Sự cố:** Tạo ra các cấu hình sai để Dashboard chuyển sang màu đỏ.
+- 🟢 **Tự động sửa:** Kích hoạt Ansible để fix lỗi và đưa Dashboard về màu xanh.
+
+### 2. Quét thực tế (Live Execution)
+#### Thiết lập SSH Access
+Hệ thống cần quyền truy cập SSH vào các nodes OpenStack (Controller/Compute):
+```bash
+# Thiết lập biến môi trường
+export OPENSTACK_HOST="10.0.0.1"
+export OPENSTACK_USER="ubuntu"
+export OPENSTACK_KEY="~/.ssh/id_rsa"
+
+# Chạy quét live
+make scan-live
+```
+
+#### Tự động Remedy (Khắc phục)
+Sử dụng Ansible Playbooks để sửa lỗi hàng loạt:
+```bash
+ansible-playbook remediation/ansible/playbooks/site.yml -i '10.0.0.1,' --tags keystone,nova
 ```
 
 ---
 
-## 🚀 fast usage with CLI
+## 📊 Dashboard & Monitoring
 
-The new `compliance_manager.py` unified CLI makes operating the framework easy.
+Stack giám sát cung cấp khả năng quan sát thời gian thực về tình trạng tuân thủ.
 
-### 1. Run Compliance Scan
+### Kích hoạt Stack
 ```bash
-# Scan OpenStack environment
-./compliance_manager.py scan --target openstack --backend ssh --host 10.0.0.1
-
-# Or run a demo scan (generates mock data)
-python3 scripts/generate_mock_data.py
+make dashboard
 ```
 
-### 2. Generate Professional Report 📄
-Generate an executive-ready HTML report (printable to PDF) with charts and scorecards.
+### Thông tin truy cập:
+- **Grafana:** [http://localhost:3000](http://localhost:3000) (`admin` / `openstack-cis-2024`)
+- **Prometheus:** [http://localhost:9091](http://localhost:9091)
+- **Cảnh báo (Alerts):** Tự động gửi thông báo qua Slack/Email khi Compliance Score < 80%.
 
+---
+
+## 🔐 Hệ thống Minh chứng (Evidence)
+
+Mọi dữ liệu quét được lưu trữ theo tiêu chuẩn kiểm toán quốc tế (Audit-Ready):
+- **Immutability:** Minh chứng được hash SHA-256 để đảm bảo không bị giả mạo.
+- **Storage Path:** `evidence_store/{scanner}/{year}/{month}/{day}/`
+- **KPIs:** Tự động tính toán MTTR (Mean Time to Remediate) và MTTD (Mean Time to Detect).
+
+### Cách kiểm tra tính toàn vẹn:
 ```bash
-./compliance_manager.py report --format html
-# Output: compliance-report-20251229.html
-```
-
-### 3. Compliance Dashboard 📊
-Start the real-time Grafana/Prometheus monitoring stack.
-
-```bash
-./compliance_manager.py dashboard start
-# Access at http://localhost:3000 (admin/openstack-cis-2024)
-```
-
-### 4. Auto-Remediation 🛠️
-Automatically fix identified issues using Ansible.
-
-```bash
-./compliance_manager.py remediate --target openstack --dry-run
+# Xác thực hash của file minh chứng
+bash evidence/scripts/verify-integrity.sh evidence_store/raw-scans/inspec/latest.json
 ```
 
 ---
 
-## Usage
+## 🏢 Nền tảng Enterprise (Backend API)
 
-### Scanning Kolla-Ansible Containers
+Nền tảng hỗ trợ quản lý tập trung đa môi trường (Multi-tenant) thông qua REST API.
 
+### Triển khai Backend
 ```bash
-# Enter a running container to check configs
-docker exec -it keystone bash
-cat /etc/keystone/keystone.conf | grep -E "^(admin_token|token_expiration)"
-
-# Or check from host
-docker exec keystone cat /etc/keystone/keystone.conf
-
-# Run InSpec against container
-inspec exec tests/inspec/openstack-cis/controls/os-1-identity.rb \
-  -t docker://keystone
+docker-compose -f docker-compose.enterprise.yml up -d
+python backend/database/init_db.py
 ```
 
-### Remediation with Ansible
+### Tài liệu API
+Truy cập Swagger tại: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **RBAC:** Admin, Security Engineer, Auditor.
+- **Task Queue:** Celery xử lý hàng nghìn job quét không đồng bộ.
+- **Integrations:** Link trực tiếp với Jira để tạo ticket và Slack để báo động.
 
+---
+
+## 📄 Báo cáo & Kiểm toán
+
+### Báo cáo LaTeX (PDF)
+Dành cho báo cáo chính thức cấp lãnh đạo hoặc ban kiểm toán:
 ```bash
-# Run OpenStack hardening playbook
-ansible-playbook remediation/ansible/cis-openstack-remediation.yml \
-  -i /etc/kolla/ansible/inventory/all-in-one \
-  --tags keystone,nova
-
-# After remediation, restart services via Kolla
-kolla-ansible reconfigure -i /etc/kolla/ansible/inventory/all-in-one
+cd docs/report
+pdflatex report.tex
 ```
 
----
-
-## Evidence & Reporting
-
-### Collect Evidence
-
-```bash
-python evidence/collectors/evidence_collector.py \
-  --inspec-json scan-results.json \
-  --evidence-path ./evidence_store \
-  --store
-```
-
-### Generate Report
-
-```bash
-python evidence/reporters/compliance_reporter.py \
-  --evidence-path ./evidence_store \
-  --type daily \
-  --format markdown
-```
+### Báo cáo HTML
+Báo cáo trực quan đi kèm với kết quả quét InSpec, hiển thị chi tiết từng dòng cấu hình vi phạm và hướng dẫn khắc phục.
 
 ---
 
-## Dashboard
+## 🛠️ Khắc phục sự cố
 
-### Demo Dashboard (Standalone HTML)
-
-Open `dashboards/demo-dashboard.html` in any browser for a static compliance view.
-
-### Full Monitoring Stack
-
-```bash
-cd dashboards
-docker-compose up -d
-
-# Access:
-# - Grafana: http://localhost:3000 (admin/openstack-cis-2024)
-# - Prometheus: http://localhost:9091
-# - Alertmanager: http://localhost:9093
-```
+1. **Lỗi `Permission denied`:** Đảm bảo user SSH có quyền `sudo` không cần mật khẩu (hoặc cấu hình `NOPASSWD`).
+2. **Dashboard trống:** Kiểm tra `compliance-exporter` logs: `docker logs compliance-exporter`.
+3. **Lỗi Python:** Đảm bảo đã chạy `make install` để cập nhật đầy đủ thư viện.
 
 ---
 
-## 📊 Current Status
+## 📞 Hỗ trợ & Đóng góp
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PROJECT COMPLETION STATUS                     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  OpenStack CIS Benchmark:  ████████████████████░░░░  86%        │
-│  Linux CIS Benchmark:      █████████░░░░░░░░░░░░░░░  47%        │
-│  Evidence System:          ████████████████████████  100%       │
-│  Dashboard & Monitoring:   ████████████████████████  100%       │
-│  CI/CD Integration:        ████████████████████████  100%       │
-│  OPA Policy Testing:       ████████████████████████  100%       │
-│  Ticketing Integration:    ████████████████████████  100%       │
-│                                                                  │
-│  Total Files: 65+ | Controls: 88+ | Ready for Production: YES  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### ✨ Recent Improvements (2025-12-29)
-
-| Feature | Description |
-|---------|-------------|
-| **Makefile** | Unified CLI: `make scan`, `make report`, `make dashboard`, `make test`, `make lint` |
-| **OPA Policy Tests** | Unit tests for all Rego security policies (`opa test policies/rego/`) |
-| **Baseline Comparison** | Track compliance drift over time (`make baseline`, `make diff`) |
-| **JIRA Integration** | Auto-create tickets for failed controls (`scripts/jira_webhook.py`) |
-| **Slack Notifications** | Rich Slack alerts with severity colors (`scripts/slack_notify.py`) |
-| **Prometheus Alerting** | 15+ alert rules for critical/high/medium compliance issues |
-| **Code Quality CI** | GitHub Actions for Ansible lint, Python lint, OPA tests, security scan |
-| **Docker Improvements** | Health checks, persistent volumes, non-root container user |
+Dự án được xây dựng với mục tiêu nâng tầm bảo mật Cloud tại Việt Nam.
+- **Tác giả:** Team Capstone - Cloud Security Specialists.
+- **Tiêu chuẩn:** Enterprise Grade.
+- **GitHub:** [COMPLIANCE-AS-CODE](https://github.com/vutd22uit/COMPLIANCE-AS-CODE)
 
 ---
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/new-control`
-3. Commit changes: `git commit -m 'Add new control'`
-4. Push: `git push origin feature/new-control`
-5. Create Pull Request
-
----
-
-## References
-
-- [CIS OpenStack Benchmark](https://www.cisecurity.org/benchmark/openstack)
-- [CIS Ubuntu Linux Benchmark](https://www.cisecurity.org/benchmark/ubuntu_linux)
-- [Kolla-Ansible Documentation](https://docs.openstack.org/kolla-ansible/yoga/)
-- [OpenStack Security Guide](https://docs.openstack.org/security-guide/)
-- [InSpec Documentation](https://docs.chef.io/inspec/)
-
----
-
-## License
-
-MIT License - See [LICENSE](LICENSE)
-
----
-
-**Last Updated**: 2025-12-29
-**OpenStack Version**: Yoga (Kolla-Ansible)
-**Author**: Capstone Project Team
+*Kiến tạo một hạ tầng Cloud an toàn và tuân thủ.*

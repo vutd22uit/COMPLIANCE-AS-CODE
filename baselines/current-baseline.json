@@ -1284,21 +1284,6 @@
           ]
         },
         {
-          "id": "CIS-OS-86",
-          "title": "Compliant Control 86",
-          "desc": "This control is compliant.",
-          "impact": 0.5,
-          "tags": {
-            "severity": "medium"
-          },
-          "results": [
-            {
-              "status": "passed",
-              "code_desc": "Check passed"
-            }
-          ]
-        },
-        {
           "id": "CIS-OS-FAIL-1",
           "title": "Failed Control 1",
           "desc": "This control has failed validation.",
@@ -1316,6 +1301,21 @@
         {
           "id": "CIS-OS-FAIL-2",
           "title": "Failed Control 2",
+          "desc": "This control has failed validation.",
+          "impact": 0.3,
+          "tags": {
+            "severity": "low"
+          },
+          "results": [
+            {
+              "status": "failed",
+              "code_desc": "Check failed"
+            }
+          ]
+        },
+        {
+          "id": "CIS-OS-FAIL-3",
+          "title": "Failed Control 3",
           "desc": "This control has failed validation.",
           "impact": 0.3,
           "tags": {

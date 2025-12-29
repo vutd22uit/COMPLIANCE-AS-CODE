@@ -224,7 +224,8 @@
                                 "value": null
                             }
                         ]
-                    }
+                    },
+                    "unit": "dateTimeAsIso"
                 },
                 "overrides": []
             },
@@ -251,7 +252,7 @@
             },
             "targets": [
                 {
-                    "expr": "openstack_last_scan_timestamp",
+                    "expr": "openstack_last_scan_timestamp * 1000",
                     "legendFormat": "Last Scan",
                     "refId": "A"
                 }
@@ -470,6 +471,11 @@
                     "expr": "openstack_service_controls{service=\"cinder\"}",
                     "legendFormat": "Cinder",
                     "refId": "D"
+                },
+                {
+                    "expr": "openstack_service_controls{service=\"linux\"}",
+                    "legendFormat": "Linux",
+                    "refId": "E"
                 }
             ],
             "title": "🔧 Controls by OpenStack Service",
@@ -1273,7 +1279,7 @@
         "list": []
     },
     "time": {
-        "from": "now-7d",
+        "from": "now-24h",
         "to": "now"
     },
     "timepicker": {},

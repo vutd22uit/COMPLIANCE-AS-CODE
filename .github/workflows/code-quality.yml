@@ -1,0 +1,256 @@
+name: Code Quality & Linting
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ============================================
+  # Ansible Linting
+  # ============================================
+  ansible-lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Ansible Lint
+        run: |
+          pip install ansible ansible-lint yamllint
+
+      - name: Run Ansible Lint
+        run: |
+          ansible-lint remediation/ansible/ --format codeclimate > ansible-lint-results.json || true
+          ansible-lint remediation/ansible/ || true
+
+      - name: Run YAML Lint on Playbooks
+        run: |
+          yamllint -d relaxed remediation/ansible/*.yml || true
+
+      - name: Upload lint results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ansible-lint-results
+          path: ansible-lint-results.json
+          retention-days: 7
+
+  # ============================================
+  # Python Linting & Type Checking
+  # ============================================
+  python-lint:
+    name: Python Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: |
+          pip install flake8 black isort mypy
+
+      - name: Run Flake8
+        run: |
+          flake8 --max-line-length=120 --ignore=E501,W503,E203 \
+            dashboards/exporters/*.py \
+            evidence/collectors/*.py \
+            evidence/reporters/*.py \
+            ci/scripts/*.py \
+            scripts/*.py \
+            || true
+
+      - name: Check Black formatting
+        run: |
+          black --check --diff \
+            dashboards/exporters/*.py \
+            scripts/*.py \
+            || true
+
+      - name: Check import sorting
+        run: |
+          isort --check-only --diff \
+            dashboards/exporters/*.py \
+            scripts/*.py \
+            || true
+
+  # ============================================
+  # OPA/Rego Linting & Testing
+  # ============================================
+  rego-lint:
+    name: OPA/Rego Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install OPA
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa
+          sudo mv opa /usr/local/bin/
+
+      - name: Check Rego syntax
+        run: |
+          opa check policies/rego/
+
+      - name: Verify Rego formatting
+        run: |
+          opa fmt --diff policies/rego/
+          # Check if formatting changes are needed
+          if ! opa fmt --diff policies/rego/ | grep -q "^"; then
+            echo "✅ All Rego files are properly formatted"
+          else
+            echo "⚠️ Some files need formatting. Run: opa fmt -w policies/rego/"
+          fi
+
+      - name: Run OPA unit tests
+        run: |
+          opa test policies/rego/ -v
+
+      - name: Generate policy coverage report
+        run: |
+          opa test policies/rego/ --coverage --format=json > opa-coverage.json || true
+
+      - name: Upload OPA test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opa-test-results
+          path: opa-coverage.json
+          retention-days: 7
+
+  # ============================================
+  # InSpec Profile Validation
+  # ============================================
+  inspec-validate:
+    name: Validate InSpec Profiles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install InSpec
+        run: |
+          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec -v 5.22
+
+      - name: Validate OpenStack CIS Profile
+        run: |
+          inspec check tests/inspec/openstack-cis --chef-license=accept-silent
+
+      - name: Validate Linux CIS Profile
+        run: |
+          inspec check tests/inspec/linux-cis --chef-license=accept-silent
+        continue-on-error: true
+
+      - name: Generate profile JSON
+        run: |
+          inspec json tests/inspec/openstack-cis --chef-license=accept-silent > openstack-profile.json
+          echo "## InSpec Profile Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Controls: $(jq '.controls | length' openstack-profile.json)" >> $GITHUB_STEP_SUMMARY
+          echo "- Groups: $(jq '.groups | length' openstack-profile.json)" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Docker Build Test
+  # ============================================
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Exporter Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./dashboards/exporters
+          push: false
+          tags: compliance-exporter:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test Docker Compose syntax
+        run: |
+          cd dashboards
+          docker-compose config
+
+  # ============================================
+  # Security Scanning
+  # ============================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install security tools
+        run: |
+          pip install bandit safety
+
+      - name: Run Bandit (Python security)
+        run: |
+          bandit -r dashboards/exporters/ scripts/ -f json -o bandit-results.json || true
+          bandit -r dashboards/exporters/ scripts/ || true
+
+      - name: Check for vulnerable dependencies
+        run: |
+          pip install -r requirements.txt
+          safety check --json > safety-results.json || true
+        continue-on-error: true
+
+      - name: Upload security results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-scan-results
+          path: |
+            bandit-results.json
+            safety-results.json
+          retention-days: 30
+
+  # ============================================
+  # Summary Report
+  # ============================================
+  summary:
+    name: Quality Summary
+    runs-on: ubuntu-latest
+    needs: [ansible-lint, python-lint, rego-lint, inspec-validate, docker-build, security-scan]
+    if: always()
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## 📊 Code Quality Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Ansible Lint | ${{ needs.ansible-lint.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Python Lint | ${{ needs.python-lint.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| OPA/Rego | ${{ needs.rego-lint.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| InSpec | ${{ needs.inspec-validate.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Build | ${{ needs.docker-build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan | ${{ needs.security-scan.result == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY

@@ -4,6 +4,7 @@
 ![Status](https://img.shields.io/badge/status-active-success.svg)
 ![OpenStack](https://img.shields.io/badge/OpenStack-Yoga-ED1944?logo=openstack&logoColor=white)
 ![Kolla](https://img.shields.io/badge/Kolla--Ansible-Yoga-blue)
+![Enterprise](https://img.shields.io/badge/Enterprise-Ready-success?style=for-the-badge)
 
 A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforcement, and remediation of **CIS Benchmark** compliance controls across **OpenStack** cloud infrastructure deployed using **Kolla-Ansible**.
 
@@ -11,6 +12,33 @@ A comprehensive Compliance-as-Code (CaC) framework for automated testing, enforc
 > - OpenStack **Yoga** release
 > - Deployed via **Kolla-Ansible** on Ubuntu 22.04/24.04
 > - CIS OpenStack Foundations Benchmark + CIS Linux Benchmark
+
+---
+
+## 🚀 **NEW: Enterprise Edition Available!**
+
+This framework now includes an **Enterprise-Grade** version with production-ready features for **Cloud Security Engineer** roles at cloud providers, banks, and large enterprises.
+
+### 🌟 Enterprise Features
+- ✅ **REST API Backend** (FastAPI)
+- ✅ **PostgreSQL Database** with proper schema
+- ✅ **JWT Authentication** + RBAC (4 roles: Admin, Security Engineer, Auditor, Customer)
+- ✅ **Celery Task Queue** for async scanning
+- ✅ **Exception Workflow** for compliance waivers
+- ✅ **Audit Logging** for complete trail
+- ✅ **Multi-Tenant** support
+- ✅ **Docker Compose** deployment
+- ✅ **Jira/Slack** integrations (planned)
+
+### 📚 Enterprise Documentation
+- **[Enterprise README](./ENTERPRISE-README.md)** - Quick start & API guide
+- **[Upgrade Summary](./ENTERPRISE-UPGRADE-SUMMARY.md)** - What's new & skills demonstrated
+- **[Implementation Plan](/.agent/workflows/enterprise-upgrade-plan.md)** - Full roadmap
+
+### 🎯 Perfect for Cloud Security Engineer roles at:
+- Viettel IDC, VNPT Cloud, FPT Cloud, CMC Cloud
+- Banks: Vietcombank, VPBank, Techcombank
+- Telco: Viettel, VNPT, MobiFone
 
 ---
 
@@ -225,52 +253,40 @@ openstack service list
 
 ---
 
-## Quick Start
+## 🚀 fast usage with CLI
 
-### 1. Clone Repository
+The new `compliance_manager.py` unified CLI makes operating the framework easy.
 
+### 1. Run Compliance Scan
 ```bash
-git clone https://github.com/vutd22uit/COMPLIANCE-AS-CODE.git
-cd COMPLIANCE-AS-CODE
+# Scan OpenStack environment
+./compliance_manager.py scan --target openstack --backend ssh --host 10.0.0.1
+
+# Or run a demo scan (generates mock data)
+python3 scripts/generate_mock_data.py
 ```
 
-### 2. Install Dependencies
+### 2. Generate Professional Report 📄
+Generate an executive-ready HTML report (printable to PDF) with charts and scorecards.
 
 ```bash
-# Install InSpec
-curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec
-
-# Install Python dependencies
-pip install -r requirements.txt
+./compliance_manager.py report --format html
+# Output: compliance-report-20251229.html
 ```
 
-### 3. Run Compliance Scan
+### 3. Compliance Dashboard 📊
+Start the real-time Grafana/Prometheus monitoring stack.
 
 ```bash
-# Scan OpenStack (from controller node)
-inspec exec tests/inspec/openstack-cis \
-  -t ssh://deployer@controller-ip \
-  --reporter json:scan-results.json \
-  --chef-license accept-silent
-
-# Scan using Docker (for containerized services)
-for service in keystone nova neutron glance; do
-  docker exec kolla_$service cat /etc/$service/$service.conf > /tmp/$service.conf
-done
-
-inspec exec tests/inspec/openstack-cis \
-  --reporter cli json:results.json
+./compliance_manager.py dashboard start
+# Access at http://localhost:3000 (admin/openstack-cis-2024)
 ```
 
-### 4. View Dashboard
+### 4. Auto-Remediation 🛠️
+Automatically fix identified issues using Ansible.
 
 ```bash
-# Open demo dashboard
-open dashboards/demo-dashboard.html
-
-# Or start full monitoring stack
-cd dashboards && docker-compose up -d
-# Access Grafana at http://localhost:3000
+./compliance_manager.py remediate --target openstack --dry-run
 ```
 
 ---
@@ -358,13 +374,28 @@ docker-compose up -d
 │  OpenStack CIS Benchmark:  ████████████████████░░░░  86%        │
 │  Linux CIS Benchmark:      █████████░░░░░░░░░░░░░░░  47%        │
 │  Evidence System:          ████████████████████████  100%       │
-│  Dashboard:                ████████████████████████  100%       │
+│  Dashboard & Monitoring:   ████████████████████████  100%       │
 │  CI/CD Integration:        ████████████████████████  100%       │
+│  OPA Policy Testing:       ████████████████████████  100%       │
+│  Ticketing Integration:    ████████████████████████  100%       │
 │                                                                  │
-│  Total Files: 55 | Controls: 88+ | Ready for Production: YES   │
+│  Total Files: 65+ | Controls: 88+ | Ready for Production: YES  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### ✨ Recent Improvements (2025-12-29)
+
+| Feature | Description |
+|---------|-------------|
+| **Makefile** | Unified CLI: `make scan`, `make report`, `make dashboard`, `make test`, `make lint` |
+| **OPA Policy Tests** | Unit tests for all Rego security policies (`opa test policies/rego/`) |
+| **Baseline Comparison** | Track compliance drift over time (`make baseline`, `make diff`) |
+| **JIRA Integration** | Auto-create tickets for failed controls (`scripts/jira_webhook.py`) |
+| **Slack Notifications** | Rich Slack alerts with severity colors (`scripts/slack_notify.py`) |
+| **Prometheus Alerting** | 15+ alert rules for critical/high/medium compliance issues |
+| **Code Quality CI** | GitHub Actions for Ansible lint, Python lint, OPA tests, security scan |
+| **Docker Improvements** | Health checks, persistent volumes, non-root container user |
 
 ---
 

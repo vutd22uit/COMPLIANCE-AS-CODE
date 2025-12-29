@@ -159,18 +159,19 @@ control:
   # Evidence Collection
   evidence:
     # What evidence to collect
-    - type: "scan_report"
-      format: "json"
-      source: "inspec"
-      retention_days: 2555  # 7 years
+    items:
+      - type: "scan_report"
+        format: "json"
+        source: "inspec"
+        retention_days: 2555  # 7 years
 
-    - type: "aws_config_snapshot"
-      format: "json"
-      retention_days: 2555
+      - type: "aws_config_snapshot"
+        format: "json"
+        retention_days: 2555
 
-    - type: "remediation_log"
-      format: "json"
-      retention_days: 2555
+      - type: "remediation_log"
+        format: "json"
+        retention_days: 2555
 
     # Where to store evidence
     storage:

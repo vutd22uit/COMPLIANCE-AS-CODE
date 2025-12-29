@@ -1,73 +1,59 @@
-# Compliance-as-Code Framework - Python Dependencies
-# Install with: pip install -r requirements.txt
-
-# IaC Scanning & Policy
-checkov>=2.5.0                  # IaC security scanning
-terraform-compliance>=1.3.44    # BDD-style compliance testing
-
-# Cloud SDKs
-boto3>=1.34.0                   # AWS SDK
-botocore>=1.34.0
-
-# Cloud Custodian (Remediation)
-c7n>=0.9.30                     # Cloud Custodian core
-c7n-org>=0.6.25                 # Multi-account support
-
-# Testing & Validation
-pytest>=7.4.0                   # Test framework
-pytest-cov>=4.1.0               # Coverage reporting
-moto>=4.2.0                     # AWS mock for testing
-
-# Configuration & Templating
-pyyaml>=6.0.1                   # YAML parsing
-jinja2>=3.1.2                   # Templating
-python-dotenv>=1.0.0            # Environment variables
-
-# Reporting & Evidence
-jsonschema>=4.20.0              # JSON schema validation
-tabulate>=0.9.0                 # Table formatting for reports
-
-# Automation & Orchestration
-ansible>=8.0.0                  # Configuration management
-ansible-core>=2.15.0
-
-# CLI & Utilities
-click>=8.1.7                    # CLI framework
-rich>=13.7.0                    # Terminal formatting
-requests>=2.31.0                # HTTP library
-
-# Date & Time
+# ============================================
+# Core Framework Dependencies
+# ============================================
+# Existing requirements
+ansible>=8.0.0
+jinja2>=3.1.2
+pyyaml>=6.0
 python-dateutil>=2.8.2
+requests>=2.31.0
 
-# Notifications
-slack-sdk>=3.26.0               # Slack notifications
+# ============================================
+# NEW: Backend API Dependencies
+# ============================================
 
-# AWS Utilities
-aws-sam-cli>=1.105.0            # SAM CLI for Lambda
-cfn-lint>=0.83.0                # CloudFormation linting
+# FastAPI Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
 
-# Security
-cryptography>=41.0.7            # Cryptographic operations
+# Database
+sqlalchemy>=2.0.23
+psycopg2-binary>=2.9.9  # PostgreSQL driver
+alembic>=1.12.1  # Database migrations
 
-# Data Processing
-pandas>=2.1.4                   # Data analysis (for reports)
+# Authentication & Security
+python-jose[cryptography]>=3.3.0  # JWT tokens
+passlib[bcrypt]>=1.7.4  # Password hashing
+python-dotenv>=1.0.0  # Environment variables
 
-# Git Integration
-GitPython>=3.1.40               # Git operations
+# Task Queue (Celery)
+celery>=5.3.4
+redis>=5.0.1
 
-# API & Web
-fastapi>=0.108.0                # API framework (if building dashboard API)
-uvicorn>=0.25.0                 # ASGI server
+# Reporting
+weasyprint>=60.1  # PDF generation
+openpyxl>=3.1.2  # Excel generation
+pandas>=2.1.3  # Data processing
 
-# Development Tools
-pre-commit>=3.6.0               # Pre-commit hooks
-black>=23.12.0                  # Code formatting
-flake8>=7.0.0                   # Linting
-mypy>=1.7.0                     # Type checking
-
-# Documentation
-mkdocs>=1.5.3                   # Documentation generator
-mkdocs-material>=9.5.0          # Material theme
+# Integrations
+slack-sdk>=3.26.1  # Slack integration
+jira>=3.5.2  # Jira integration
 
 # Monitoring & Logging
-elasticsearch>=8.11.0           # Elasticsearch client
+prometheus-client>=0.19.0
+structlog>=23.2.0
+
+# Validation & Serialization
+pydantic>=2.5.0
+email-validator>=2.1.0
+
+# Testing
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
+httpx>=0.25.2  # For testing FastAPI
+
+# Development Tools
+black>=23.12.0  # Code formatter
+flake8>=6.1.0  # Linter
+mypy>=1.7.1  # Type checker
